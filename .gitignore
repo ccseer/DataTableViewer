@@ -163,5 +163,6 @@ x86/
 # Built Visual Studio Code Extensions
 *.vsix
 .claude/*
+AGENTS.md
 CMakeUserPresets.json
 CMakePresets.json

@@ -34,32 +34,22 @@ Requirements:
 
 - Qt 6.8
 - CMake 3.16+
-- MSVC (Visual Studio 2022 or newer)
-- A shell with the MSVC developer environment loaded
+- Visual Studio 2022 or newer with MSVC
 
-This project is intended to use a single `RelWithDebInfo` build:
+Recommended Visual Studio flow:
 
-```powershell
-cmake --preset RelWithDebInfo
-cmake --build C:/Users/corey/Dev/build_output/DataTableViewer --target datatableviewer
-```
+1. Clone this repository.
+2. Open the repository folder in Visual Studio with **File -> Open -> Folder**.
+3. Let Visual Studio configure the CMake project.
+4. Set `datatableviewer_test` as the startup item.
+5. Build or run `datatableviewer_test`.
 
-This produces:
+The plugin build produces:
 
 - `datatableviewer.dll` - the Seer plugin
 - `plugin.json` - copied next to the DLL after build
 
-To run tests:
-
-```powershell
-cmake --build C:/Users/corey/Dev/build_output/DataTableViewer --target run_all_tests
-```
-
-Parser tests can be disabled with:
-
-```powershell
-cmake --preset RelWithDebInfo -DBUILD_TESTS=OFF
-```
+Parser tests are available through the CMake target `run_all_tests`.
 
 ## Use With Seer
 
@@ -80,4 +70,3 @@ format registration, lifecycle, threading, and release-check expectations.
 ## License
 
 MIT © 2026 ccseer
-

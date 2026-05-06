@@ -1,0 +1,71 @@
+# Qt-style clang-format config
+# Reference: https://wiki.qt.io/Qt_Coding_Style
+
+Language: Cpp
+Standard: c++17
+ColumnLimit: 100
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+# Braces — functions on new line, control statements same line
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: false
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  SplitEmptyFunction: false
+
+# Qt: no space between keyword and paren — if(cond), for(;;), while(cond)
+SpaceBeforeParens: Never
+SpaceAfterCStyleCast: false
+SpaceBeforeRangeBasedForLoopColon: true
+SpacesInAngles: false
+SpacesInContainerLiterals: false
+SpaceInEmptyParentheses: false
+
+# Qt: Type *ptr, Type &ref
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+# Access modifiers at same indent as class keyword
+AccessModifierOffset: -4
+IndentCaseLabels: false
+IndentPPDirectives: None
+IndentRequiresClause: false
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: false
+
+# One-liners — Qt discourages single-line statements
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+
+# Includes
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# Other
+FixNamespaceComments: true
+ReflowComments: false
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+Cpp11BracedListStyle: true

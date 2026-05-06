@@ -1,0 +1,21 @@
+{
+  "name": "DataTableViewer",
+  "version": "1.0.0",
+  "type": "dll",
+  "roles": [
+    "viewer"
+  ],
+  "entry": "datatableviewer.dll",
+  "formats": [
+    "csv",
+    "tsv",
+    "sqlite",
+    "sqlite3",
+    "db",
+    "db3",
+    "sl3"
+  ],
+  "appMinVersion": "4.2.9",
+  "author": "corey",
+  "description": "Seer plugin for tabular data preview (CSV, TSV, SQLite)"
+}

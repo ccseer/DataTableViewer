@@ -1,0 +1,5 @@
+id	product	price	is_available	tags
+101	Laptop	1299.99	true	"tech,office"
+102	Mouse	25.00	false	"peripherals"
+103	Monitor	350.50	TRUE	"display"
+104	Keyboard	""	0	""

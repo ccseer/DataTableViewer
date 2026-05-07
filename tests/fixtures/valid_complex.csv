@@ -1,6 +1,6 @@
 "id","description","notes"
-1,"Standard description","No special characters"
 2,"Description with a , comma","Quoted comma"
+1,"Standard description","No special characters"
 3,"Description with ""internal"" quotes","Escaped quotes"
 4,"Multi-line
 description","Line break inside quotes"

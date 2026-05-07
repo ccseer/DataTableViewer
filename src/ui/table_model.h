@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractTableModel>
+#include <QString>
 #include <memory>
 #include "core/table_data.h"
 
@@ -26,6 +27,8 @@ public:
     void fetchMore(const QModelIndex &parent) override;
 
 private:
+    static QString singleLineDisplayText(const std::string &cell);
+
     std::shared_ptr<const core::TableData> m_data;
     int m_loadedRows = 0;
 };

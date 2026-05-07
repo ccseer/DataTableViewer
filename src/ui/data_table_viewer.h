@@ -34,6 +34,8 @@ public:
     void updateDPR(qreal r) override;
     void updateTheme(int theme) override;
 
+    void onCopyTriggered() override;
+
 signals:
     void cancelRequested();
 

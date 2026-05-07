@@ -10,6 +10,8 @@
 #include <QKeySequence>
 #include <QGuiApplication>
 #include <QClipboard>
+#include <QMenu>
+#include <QAction>
 #include <QDebug>
 
 namespace dtv {
@@ -29,9 +31,10 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
     setupView();
     lay->addWidget(m_view);
 
-    auto *copyShortcut = new QShortcut(QKeySequence::Copy, m_view);
-    copyShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(copyShortcut, &QShortcut::activated, this, &TableRenderer::copyToClipboard);
+    m_view->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_view, &QTableView::customContextMenuRequested, this, &TableRenderer::showContextMenu);
+    connect(m_view->horizontalHeader(), &QHeaderView::sectionClicked, this,
+            &TableRenderer::onHeaderClicked);
 
     connect(m_proxy, &QAbstractItemModel::modelReset, this, [this] {
         emit filterCountChanged(m_proxy->filterMatchCount());
@@ -43,8 +46,9 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
 
 void TableRenderer::setupView()
 {
-    m_view->setSortingEnabled(true);
-    m_view->horizontalHeader()->setSortIndicatorShown(true);
+    m_view->setSortingEnabled(false); // Handle 3-state sort manually
+    m_view->horizontalHeader()->setSectionsClickable(true);
+    m_view->horizontalHeader()->setSortIndicatorShown(false);
     m_view->horizontalHeader()->setStretchLastSection(false);
     m_view->horizontalHeader()->setSectionsMovable(true);
     m_view->horizontalHeader()->setDefaultSectionSize(120);
@@ -59,6 +63,11 @@ void TableRenderer::setupView()
 
 void TableRenderer::setData(std::shared_ptr<const core::TableData> data)
 {
+    m_lastSortShown = false;
+    m_lastSortCol = -1;
+    m_view->horizontalHeader()->setSortIndicatorShown(false);
+
+    m_proxy->sort(-1); // Reset to original order
     m_model->setTableData(data);
     m_proxy->invalidate();
 }
@@ -80,8 +89,6 @@ void TableRenderer::saveHeaderState(QSettings &settings) const
 
     settings.beginGroup("TablePlugin/" + m_stateKey);
     settings.setValue("HeaderState", m_view->horizontalHeader()->saveState());
-    settings.setValue("SortColumn", m_view->horizontalHeader()->sortIndicatorSection());
-    settings.setValue("SortOrder", (int)m_view->horizontalHeader()->sortIndicatorOrder());
     settings.endGroup();
 }
 
@@ -93,11 +100,6 @@ void TableRenderer::restoreHeaderState(QSettings &settings)
     settings.beginGroup("TablePlugin/" + m_stateKey);
     if(settings.contains("HeaderState")) {
         m_view->horizontalHeader()->restoreState(settings.value("HeaderState").toByteArray());
-    }
-    if(settings.contains("SortColumn")) {
-        int col = settings.value("SortColumn").toInt();
-        Qt::SortOrder order = (Qt::SortOrder)settings.value("SortOrder").toInt();
-        m_view->sortByColumn(col, order);
     }
     settings.endGroup();
 }
@@ -121,6 +123,7 @@ void TableRenderer::copyToClipboard()
         return;
 
     auto indices = selection->selectedIndexes();
+    // Sort by row, then by column
     std::sort(indices.begin(), indices.end(), [](const QModelIndex &a, const QModelIndex &b) {
         if(a.row() != b.row())
             return a.row() < b.row();
@@ -129,18 +132,81 @@ void TableRenderer::copyToClipboard()
 
     QString text;
     int lastRow = -1;
+    int firstColInRow = -1;
+
     for(const auto &idx : indices) {
         if(lastRow != -1) {
-            if(idx.row() != lastRow)
+            if(idx.row() != lastRow) {
                 text += "\n";
-            else
+                firstColInRow = -1;
+            } else {
                 text += "\t";
+            }
         }
+
+        // Get raw data (std::string) and convert to QString
+        // Using DisplayRole is fine as TableModel returns the raw string for it.
         text += idx.data(Qt::DisplayRole).toString();
+
         lastRow = idx.row();
     }
 
     QGuiApplication::clipboard()->setText(text);
+}
+
+void TableRenderer::showContextMenu(const QPoint &pos)
+{
+    QMenu menu(this);
+
+    QAction *filterAction = menu.addAction(tr("Filter by Selection"));
+    filterAction->setEnabled(m_view->selectionModel()->hasSelection());
+    connect(filterAction, &QAction::triggered, this, &TableRenderer::filterBySelection);
+
+    menu.addSeparator();
+
+    QAction *copyAction = menu.addAction(tr("Copy"));
+    copyAction->setShortcut(QKeySequence::Copy);
+    copyAction->setEnabled(m_view->selectionModel()->hasSelection());
+    connect(copyAction, &QAction::triggered, this, &TableRenderer::copyToClipboard);
+
+    QAction *copyMdAction = menu.addAction(tr("Copy as Markdown"));
+    copyMdAction->setEnabled(m_view->selectionModel()->hasSelection());
+    connect(copyMdAction, &QAction::triggered, this, &TableRenderer::copyAsMarkdown);
+
+    menu.addSeparator();
+
+    QAction *resizeAction = menu.addAction(tr("Resize Columns to Fit"));
+    connect(resizeAction, &QAction::triggered, this, &TableRenderer::resizeColumnsToFit);
+
+    menu.exec(m_view->viewport()->mapToGlobal(pos));
+}
+
+void TableRenderer::onHeaderClicked(int column)
+{
+    auto *header = m_view->horizontalHeader();
+
+    if(column != m_lastSortCol || !m_lastSortShown) {
+        // New column or starting from scratch: Ascending
+        m_lastSortCol = column;
+        m_lastSortOrder = Qt::AscendingOrder;
+        m_lastSortShown = true;
+    } else if(m_lastSortOrder == Qt::AscendingOrder) {
+        // Move to Descending
+        m_lastSortOrder = Qt::DescendingOrder;
+    } else {
+        // Move to None
+        m_proxy->sort(-1);
+        header->setSortIndicatorShown(false);
+        m_lastSortShown = false;
+    }
+
+    header->setSortIndicatorShown(m_lastSortShown);
+    if(m_lastSortShown) {
+        header->setSortIndicator(m_lastSortCol, m_lastSortOrder);
+        m_proxy->sort(m_lastSortCol, m_lastSortOrder);
+    } else {
+        m_proxy->sort(-1);
+    }
 }
 
 } // namespace ui

@@ -30,15 +30,29 @@ public:
 
 signals:
     void filterCountChanged(int matches);
+    void requestFilter(const QString &text);
+
+public slots:
+    void copyToClipboard();
+    void copyAsMarkdown();
+    void resizeColumnsToFit();
+    void filterBySelection();
+
+private slots:
+    void showContextMenu(const QPoint &pos);
+    void onHeaderClicked(int column);
 
 private:
     void setupView();
-    void copyToClipboard();
 
     QTableView *m_view = nullptr;
     TableModel *m_model = nullptr;
     TableFilterProxy *m_proxy = nullptr;
     QString m_stateKey;
+
+    int m_lastSortCol = -1;
+    Qt::SortOrder m_lastSortOrder = Qt::AscendingOrder;
+    bool m_lastSortShown = false;
 };
 
 } // namespace ui

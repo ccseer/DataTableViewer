@@ -13,6 +13,40 @@ constexpr int kFetchBatch = 500;
 TableModel::TableModel(QObject *parent) : QAbstractTableModel(parent)
 {}
 
+QString TableModel::singleLineDisplayText(const std::string &cell)
+{
+    bool hasLineBreak = false;
+    for(char ch : cell) {
+        if(ch == '\r' || ch == '\n') {
+            hasLineBreak = true;
+            break;
+        }
+    }
+
+    if(!hasLineBreak) {
+        return QString::fromStdString(cell);
+    }
+
+    const QString original = QString::fromStdString(cell);
+    QString text;
+    text.reserve(original.size());
+    bool previousWasNewline = false;
+
+    for(QChar ch : original) {
+        if(ch == QLatin1Char('\r') || ch == QLatin1Char('\n')) {
+            if(!previousWasNewline) {
+                text += QLatin1Char(' ');
+                previousWasNewline = true;
+            }
+            continue;
+        }
+        text += ch;
+        previousWasNewline = false;
+    }
+
+    return text;
+}
+
 void TableModel::setTableData(std::shared_ptr<const core::TableData> data)
 {
     beginResetModel();
@@ -52,7 +86,11 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
 
     const std::string &cell = m_data->rows[row][col];
 
-    if(role == Qt::DisplayRole || role == Qt::ToolTipRole) {
+    if(role == Qt::DisplayRole) {
+        return singleLineDisplayText(cell);
+    }
+
+    if(role == Qt::ToolTipRole) {
         return QString::fromStdString(cell);
     }
 

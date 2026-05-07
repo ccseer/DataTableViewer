@@ -124,6 +124,16 @@ if(BUILD_TESTS)
     add_table_test(test_type_inferrer tests/test_type_inferrer.cpp)
     add_table_test(test_sqlite_parser  tests/test_sqlite_parser.cpp)
 
+    add_executable(test_table_model tests/test_table_model.cpp)
+    target_include_directories(test_table_model PRIVATE src/)
+    target_link_libraries(test_table_model PRIVATE Qt6::Test Qt6::Core)
+    target_sources(test_table_model PRIVATE
+        src/ui/table_model.h
+        src/ui/table_model.cpp
+    )
+    add_test(NAME test_table_model COMMAND test_table_model)
+    list(APPEND TABLE_TEST_TARGETS test_table_model)
+
     add_custom_target(run_all_tests
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
                 $<$<BOOL:$<CONFIG>>:-C>

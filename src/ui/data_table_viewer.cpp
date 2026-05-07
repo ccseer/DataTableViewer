@@ -68,6 +68,10 @@ void DataTableViewer::init()
         m_renderer->setFilter(text, -1);
     });
 
+    connect(m_renderer, &dtv::ui::TableRenderer::requestFilter, this, [this](const QString &text) {
+        m_search->setText(text);
+    });
+
     connect(m_renderer, &dtv::ui::TableRenderer::filterCountChanged, this, [this](int matches) {
         if(!m_search->text().isEmpty()) {
             m_status->setValueText(QString("Matches: %1").arg(matches));
@@ -92,7 +96,7 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
     init();
 
     lay_content->setContentsMargins(0, 0, 0, 0);
-    lay_content->setSpacing(0);
+    lay_content->setSpacing(qRound(6 * m_dpr));
     if(m_search)
         lay_content->addWidget(m_search);
     if(m_stack)
@@ -124,6 +128,11 @@ void DataTableViewer::updateDPR(qreal r)
         m_status->updateTheme(m_isDarkMode, r);
     if(m_picker)
         m_picker->updateTheme(m_isDarkMode, r);
+
+    if(layout()) {
+        layout()->setSpacing(qRound(6 * r));
+    }
+
     reapplyStyles();
 }
 
@@ -280,4 +289,11 @@ QString DataTableViewer::makeKey(const QString &format, const QString &table) co
     if(table.isEmpty())
         return format;
     return format + "/" + table;
+}
+
+void DataTableViewer::onCopyTriggered()
+{
+    if(m_renderer && m_stack->currentWidget() == m_renderer) {
+        m_renderer->copyToClipboard();
+    }
 }

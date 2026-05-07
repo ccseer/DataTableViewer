@@ -48,7 +48,7 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
             [this](const QModelIndex &current, const QModelIndex & /*previous*/) {
                 if(current.isValid()) {
                     QString header =
-                        m_model->headerData(current.column(), Qt::Horizontal).toString();
+                        m_proxy->headerData(current.column(), Qt::Horizontal).toString();
                     QString value = current.data(Qt::DisplayRole).toString();
                     emit currentItemChanged(header, value);
                 } else {
@@ -254,7 +254,7 @@ void TableRenderer::copyAsMarkdown()
 
     QString text = "|";
     for(int col : cols) {
-        QString h = m_model->headerData(col, Qt::Horizontal).toString().replace("|", "\\|");
+        QString h = m_proxy->headerData(col, Qt::Horizontal).toString().replace("|", "\\|");
         text += h + "|";
     }
     text += "\n|";

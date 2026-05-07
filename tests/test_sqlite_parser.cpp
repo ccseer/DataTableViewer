@@ -9,9 +9,6 @@ class TestSqliteParser : public QObject {
 private slots:
     void initTestCase()
     {
-        // Ensure Qt can find the SQL drivers
-        QCoreApplication::addLibraryPath("C:/Users/corey/Dev/Qt/6.8.3/msvc2022_64/plugins");
-
         // Create a test database
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "test_db");
         db.setDatabaseName(":memory:");

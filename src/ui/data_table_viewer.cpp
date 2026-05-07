@@ -7,6 +7,7 @@
 #include "core/parser_registry.h"
 #include "workers/table_worker.h"
 #include "workers/background_thread.h"
+#include "seer/viewerhelper.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -18,46 +19,71 @@
 #include <QSettings>
 #include <QDebug>
 #include <QThread>
+#include <QCoreApplication>
+#include <QSqlDatabase>
 
 #define qprintt qDebug() << "[DataTableViewer]"
 
+namespace {
+bool isSqliteExtension(const QString &suffix)
+{
+    const QString ext = suffix.toLower();
+    return ext == "sqlite" || ext == "sqlite3" || ext == "db" || ext == "db3" || ext == "sl3";
+}
+} // namespace
+
 DataTableViewer::DataTableViewer(QWidget *parent) : ViewerBase(parent)
-{}
+{
+    qprintt << this;
+}
 
 DataTableViewer::~DataTableViewer()
 {
     cancelPending();
+
+    qprintt << "~" << this;
 }
 
 void DataTableViewer::init()
 {
-    if(m_search)
-        return;
-
     qRegisterMetaType<std::shared_ptr<const dtv::core::TableParseResult>>(
         "std::shared_ptr<const dtv::core::TableParseResult>");
     dtv::core::ParserRegistry::instance().registerBuiltinParsers();
 
+    // 1. Create UI components first
     m_search = new dtv::ui::SearchBar(this);
     m_status = new dtv::ui::StatusBar(this);
     m_renderer = new dtv::ui::TableRenderer(this);
     m_picker = new dtv::ui::TablePicker(this);
 
+    // 2. Setup paths and check drivers
+    const QString path = seer::getDLLPath();
+    if(!path.isEmpty()) {
+        QCoreApplication::addLibraryPath(path);
+    } else {
+        qprintt << "get DLL path failed" << path;
+    }
+
+    m_sqliteAvailable = QSqlDatabase::drivers().contains("QSQLITE");
+    if(!m_sqliteAvailable) {
+        qprintt << "No SQL drivers found. SQLite support will report an error if used.";
+    }
+
     m_stack = new QStackedLayout;
     m_stack->addWidget(m_renderer);
     m_stack->addWidget(m_picker);
 
-    m_backBtn = new QPushButton("← Tables", this);
+    m_backBtn = new QPushButton(this);
     m_backBtn->hide();
+    m_backBtn->setFixedSize(30, 30);
     m_backBtn->setCursor(Qt::PointingHandCursor);
-    m_backBtn->setStyleSheet("QPushButton { border: none; background: transparent; padding: 4px "
-                             "8px; border-radius: 4px; font-weight: bold; }"
-                             "QPushButton:hover { background-color: rgba(128, 128, 128, 40); }");
+    m_backBtn->setToolTip("Back to table list");
 
     connect(m_backBtn, &QPushButton::clicked, this, [this] {
         m_stack->setCurrentWidget(m_picker);
         m_backBtn->hide();
-        m_status->clear();
+        m_search->hide();
+        m_status->restoreInfo();
     });
 
     connect(m_picker, &dtv::ui::TablePicker::tableSelected, this, [this](const QString &name) {
@@ -95,29 +121,21 @@ void DataTableViewer::init()
 
 void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar)
 {
-    if(!lay_content)
-        return;
-
     init();
 
     lay_content->setContentsMargins(0, 0, 0, 0);
     lay_content->setSpacing(qRound(6 * m_dpr));
-    if(m_search)
-        lay_content->addWidget(m_search);
-    if(m_stack)
-        lay_content->addLayout(m_stack, 1);
-    if(m_status)
-        lay_content->addWidget(m_status);
+    lay_content->addWidget(m_search);
+    lay_content->addLayout(m_stack, 1);
+    lay_content->addWidget(m_status);
 
-    if(lay_ctrlbar && m_backBtn) {
-        lay_ctrlbar->insertWidget(0, m_backBtn);
+    if(auto *slay = qobject_cast<QHBoxLayout *>(m_search->layout())) {
+        slay->insertWidget(0, m_backBtn);
     }
 
-    if(auto *opt = options()) {
-        m_currentPath = opt->path();
-        updateTheme(opt->theme());
-        updateDPR(opt->dpr());
-    }
+    m_currentPath = options()->path();
+    updateTheme(options()->theme());
+    updateDPR(options()->dpr());
 
     if(!m_currentPath.isEmpty()) {
         doLoadFile(m_currentPath, "");
@@ -144,12 +162,9 @@ void DataTableViewer::updateDPR(qreal r)
 void DataTableViewer::updateTheme(int theme)
 {
     m_isDarkMode = (theme == 1);
-    if(m_search)
-        m_search->updateTheme(m_isDarkMode);
-    if(m_status)
-        m_status->updateTheme(m_isDarkMode, m_dpr);
-    if(m_picker)
-        m_picker->updateTheme(m_isDarkMode, m_dpr);
+    m_search->updateTheme(m_isDarkMode);
+    m_status->updateTheme(m_isDarkMode, m_dpr);
+    m_picker->updateTheme(m_isDarkMode, m_dpr);
     reapplyStyles();
 }
 
@@ -162,27 +177,23 @@ void DataTableViewer::reapplyStyles()
     const char *text = m_isDarkMode ? Colors::DarkText : Colors::LightText;
     const char *accent = Colors::Accent;
 
-    if(m_search) {
-        m_search->setStyleSheet(QString(g_qss_top_bar)
-                                    .arg(surface, border, input, text, accent)
-                                    .arg(qRound(6 * m_dpr))
-                                    .arg(qRound(4 * m_dpr))
-                                    .arg(qRound(8 * m_dpr)));
-    }
-    if(m_status) {
-        m_status->setStyleSheet(QString(g_qss_bottom_bar).arg(surface, border));
-    }
+    m_search->setStyleSheet(QString(g_qss_top_bar)
+                                .arg(surface, border, input, text, accent)
+                                .arg(qRound(6 * m_dpr))
+                                .arg(qRound(4 * m_dpr))
+                                .arg(qRound(8 * m_dpr)));
 
-    if(m_backBtn) {
-        QColor textColor(m_isDarkMode ? Colors::DarkText : Colors::LightText);
-        m_backBtn->setStyleSheet(
-            QString("QPushButton { border: none; background: transparent; padding: %1px %2px; "
-                    "border-radius: 4px; font-weight: bold; color: %3; }"
-                    "QPushButton:hover { background-color: rgba(128, 128, 128, 40); }")
-                .arg(qRound(4 * m_dpr))
-                .arg(qRound(8 * m_dpr))
-                .arg(textColor.name()));
-    }
+    m_status->setStyleSheet(QString(g_qss_bottom_bar).arg(surface, border));
+
+    QColor iconColor(m_isDarkMode ? Colors::DarkText : Colors::LightText);
+    int iconSize = qRound(18 * m_dpr);
+    m_backBtn->setIcon(createIcon(g_svg_arrow_back, iconColor, iconSize));
+    m_backBtn->setIconSize(QSize(iconSize, iconSize));
+    m_backBtn->setFixedSize(qRound(30 * m_dpr), qRound(30 * m_dpr));
+    m_backBtn->setStyleSheet("QPushButton { border: none; background: transparent; "
+                             "border-radius: 5px; }"
+                             "QPushButton:hover { background-color: rgba(128, 128, 128, 36); }"
+                             "QPushButton:pressed { background-color: rgba(128, 128, 128, 58); }");
 }
 
 void DataTableViewer::cancelPending()
@@ -201,10 +212,19 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     m_search->setEnabled(false);
 
     QFileInfo info(path);
+    qprintt << "doLoadFile:" << path << "table:" << tableName << "suffix:" << info.suffix();
+
+    if(isSqliteExtension(info.suffix()) && !m_sqliteAvailable) {
+        m_status->setValueText("Error: SQLite driver not loaded.");
+        emit sigCommand(VCT_StateChange, VCV_Error);
+        return;
+    }
+
     auto parser = dtv::core::ParserRegistry::instance().createParser(info.suffix().toStdString());
     if(!parser) {
+        qprintt << "Error: No parser found for extension:" << info.suffix();
         m_status->setValueText("No parser found for extension: " + info.suffix());
-        sigCommand(VCT_StateChange, VCV_Error);
+        emit sigCommand(VCT_StateChange, VCV_Error);
         return;
     }
 
@@ -220,10 +240,9 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
         if(wp)
             thread->requestInterruption();
     });
-
     connect(worker, &QObject::destroyed, thread, &QObject::deleteLater);
-    connect(thread, &QThread::started, worker, &dtv::workers::TableWorker::doParse);
 
+    connect(thread, &QThread::started, worker, &dtv::workers::TableWorker::doParse);
     connect(worker, &dtv::workers::TableWorker::parseCompleted, this,
             [this](auto result, QString tName, int wgen) {
                 if(wgen != m_generation)
@@ -241,12 +260,14 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
     m_search->setEnabled(result->ok);
 
     if(!result->ok) {
+        qprintt << "Parse failed:" << QString::fromStdString(result->error);
         m_status->setValueText("Error: " + QString::fromStdString(result->error));
-        sigCommand(VCT_StateChange, VCV_Error);
+        emit sigCommand(VCT_StateChange, VCV_Error);
         return;
     }
 
     if(!result->table_names.empty()) {
+        qprintt << "SQL table picker ready, count:" << result->table_names.size();
         QStringList tables;
         for(const auto &name : result->table_names) {
             tables << QString::fromStdString(name);
@@ -256,11 +277,13 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
         m_backBtn->hide();
         m_search->hide();
         m_status->restoreInfo();
-        sigCommand(VCT_StateChange, VCV_Loaded);
+        emit sigCommand(VCT_StateChange, VCV_Loaded);
         return;
     }
 
     if(result->data) {
+        qprintt << "Table data loaded. Rows:" << result->data->rows.size()
+                << "Cols:" << result->data->columns.size() << "ms:" << result->elapsed_ms;
         QString format = QString::fromStdString(result->format_name);
         m_renderer->setStateKey(makeKey(format, tableName));
 
@@ -282,10 +305,11 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
         }
 
         if(!result->warning.empty()) {
+            qprintt << "Warning:" << QString::fromStdString(result->warning);
             m_status->setWarning(QString::fromStdString(result->warning));
         }
 
-        sigCommand(VCT_StateChange, VCV_Loaded);
+        emit sigCommand(VCT_StateChange, VCV_Loaded);
     }
 }
 

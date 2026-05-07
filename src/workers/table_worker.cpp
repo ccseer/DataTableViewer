@@ -9,7 +9,6 @@
 
 namespace dtv {
 namespace workers {
-
 namespace {
 constexpr qint64 kMaxFileBytes = 64 * 1024 * 1024;
 }

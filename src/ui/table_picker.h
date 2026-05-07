@@ -6,6 +6,7 @@
 class QListWidget;
 class QLineEdit;
 class QLabel;
+class QVBoxLayout;
 
 namespace dtv {
 namespace ui {
@@ -25,11 +26,14 @@ signals:
 private:
     void setupUi();
 
-    QListWidget *m_list = nullptr;
-    QLineEdit *m_filter = nullptr;
     QLabel *m_title = nullptr;
-
+    QLineEdit *m_filter = nullptr;
+    QListWidget *m_list = nullptr;
+    QVBoxLayout *m_layout = nullptr;
     QStringList m_allTables;
+
+    bool m_isDarkMode = false;
+    qreal m_dpr = 1.0;
 };
 
 } // namespace ui

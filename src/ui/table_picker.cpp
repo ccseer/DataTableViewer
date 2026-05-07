@@ -18,12 +18,14 @@ TablePicker::TablePicker(QWidget *parent) : QWidget(parent)
 void TablePicker::setupUi()
 {
     auto *lay = new QVBoxLayout(this);
-    lay->setContentsMargins(40, 40, 40, 40);
-    lay->setSpacing(20);
+    lay->setContentsMargins(32, 28, 32, 28);
+    lay->setSpacing(14);
+    m_layout = lay;
 
-    m_title = new QLabel("Select a table to preview:", this);
-    m_title->setStyleSheet("font-size: 16px; font-weight: bold;");
-    lay->addWidget(m_title, 0, Qt::AlignCenter);
+    m_title = new QLabel("Tables", this);
+    m_title->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_title->setStyleSheet("font-size: 15px; font-weight: 600;");
+    lay->addWidget(m_title);
 
     m_filter = new QLineEdit(this);
     m_filter->setPlaceholderText("Filter tables...");
@@ -32,16 +34,15 @@ void TablePicker::setupUi()
     lay->addWidget(m_filter);
 
     m_list = new QListWidget(this);
-    m_list->setSpacing(4);
+    m_list->setSpacing(2);
     m_list->setIconSize(QSize(20, 20));
     m_list->setCursor(Qt::PointingHandCursor);
-    m_list->setStyleSheet(
-        "QListWidget { background: transparent; border: none; font-size: 14px; }"
-        "QListWidget::item { padding: 8px; border-radius: 4px; }"
-        "QListWidget::item:hover { background-color: rgba(128, 128, 128, 30); }"
-        "QListWidget::item:selected { background-color: rgba(2, 136, 209, 40); color: inherit; }");
+    m_list->setFocusPolicy(Qt::StrongFocus);
     lay->addWidget(m_list);
 
+    connect(m_list, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+        emit tableSelected(item->text());
+    });
     connect(m_list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
         emit tableSelected(item->text());
     });
@@ -61,8 +62,9 @@ void TablePicker::setTables(const QStringList &tables)
     m_filter->clear();
 
     m_filter->setVisible(tables.size() > 10);
-
-    QIcon tableIcon = dtv::ui::createIcon(dtv::ui::g_svg_table, QColor(dtv::ui::Colors::Accent));
+    const int iconSize = qRound(20 * m_dpr);
+    const QIcon tableIcon =
+        dtv::ui::createIcon(dtv::ui::g_svg_table, QColor(dtv::ui::Colors::Accent), iconSize);
 
     for(const auto &name : tables) {
         auto *item = new QListWidgetItem(tableIcon, name, m_list);
@@ -72,15 +74,65 @@ void TablePicker::setTables(const QStringList &tables)
 
 void TablePicker::updateTheme(bool dark, qreal dpr)
 {
-    // Re-create icons if needed, but QListWidget items need refresh
-    if(!m_allTables.isEmpty()) {
-        setTables(m_allTables);
+    m_isDarkMode = dark;
+    m_dpr = dpr;
+
+    if(m_layout) {
+        m_layout->setContentsMargins(qRound(32 * dpr), qRound(28 * dpr), qRound(32 * dpr),
+                                     qRound(28 * dpr));
+        m_layout->setSpacing(qRound(14 * dpr));
     }
 
-    QColor textColor(dark ? dtv::ui::Colors::DarkText : dtv::ui::Colors::LightText);
-    m_title->setStyleSheet(QString("font-size: %1px; font-weight: bold; color: %2;")
-                               .arg(qRound(16 * dpr))
+    const QColor textColor(dark ? dtv::ui::Colors::DarkText : dtv::ui::Colors::LightText);
+    const QColor dimColor(dark ? dtv::ui::Colors::DarkTextDim : dtv::ui::Colors::LightTextDim);
+    const QColor inputColor(dark ? dtv::ui::Colors::DarkInput : dtv::ui::Colors::LightInput);
+    const QColor borderColor(dark ? dtv::ui::Colors::DarkBorder : dtv::ui::Colors::LightBorder);
+    const QColor accentColor(dtv::ui::Colors::Accent);
+    const QString selectedBg = QString("rgba(%1, %2, %3, %4)")
+                                   .arg(accentColor.red())
+                                   .arg(accentColor.green())
+                                   .arg(accentColor.blue())
+                                   .arg(dark ? 56 : 34);
+
+    m_title->setStyleSheet(QString("font-size: %1px; font-weight: 600; color: %2;")
+                               .arg(qRound(15 * dpr))
                                .arg(textColor.name()));
+
+    const int iconSize = qRound(20 * dpr);
+    const QIcon tableIcon = dtv::ui::createIcon(dtv::ui::g_svg_table, accentColor, iconSize);
+    m_list->setIconSize(QSize(iconSize, iconSize));
+    for(int i = 0; i < m_list->count(); ++i) {
+        if(auto *item = m_list->item(i))
+            item->setIcon(tableIcon);
+    }
+
+    m_filter->setFixedHeight(qRound(30 * dpr));
+    m_filter->setStyleSheet(
+        QString("QLineEdit { background-color: %1; border: 1px solid %2; border-radius: %3px; "
+                "color: %4; padding: %5px %6px; selection-background-color: %7; "
+                "placeholder-text-color: %8; }"
+                "QLineEdit:focus { border-color: %7; }")
+            .arg(inputColor.name())
+            .arg(borderColor.name())
+            .arg(qRound(6 * dpr))
+            .arg(textColor.name())
+            .arg(qRound(4 * dpr))
+            .arg(qRound(9 * dpr))
+            .arg(accentColor.name())
+            .arg(dimColor.name()));
+
+    m_list->setStyleSheet(
+        QString("QListWidget { background: transparent; border: none; font-size: %1px; color: %2; "
+                "outline: none; }"
+                "QListWidget::item { padding: %3px %4px; border-radius: %5px; }"
+                "QListWidget::item:hover { background-color: rgba(128, 128, 128, 32); }"
+                "QListWidget::item:selected { background-color: %6; color: %2; }")
+            .arg(qRound(14 * dpr))
+            .arg(textColor.name())
+            .arg(qRound(7 * dpr))
+            .arg(qRound(9 * dpr))
+            .arg(qRound(5 * dpr))
+            .arg(selectedBg));
 }
 
 void TablePicker::clear()

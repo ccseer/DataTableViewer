@@ -1,8 +1,9 @@
 #pragma once
 
 #include "seer/viewerbase.h"
-#include <memory>
 #include "core/itable_parser.h"
+
+#include <memory>
 
 class QStackedLayout;
 class QPushButton;
@@ -59,6 +60,7 @@ private:
 
     QString m_currentPath;
     int m_generation = 0;
+    bool m_sqliteAvailable = false;
     bool m_isDarkMode = false;
     qreal m_dpr = 1.0;
 };

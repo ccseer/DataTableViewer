@@ -16,6 +16,8 @@ public:
     void setLoadInfo(int rowCount, int colCount, qint64 fileBytes, qint64 elapsedMs,
                      const QString &formatName, const QString &libraryCredit,
                      bool truncated = false, size_t totalRows = 0);
+    void setWarning(const QString &warning);
+    void setFilterMatchCount(int count, bool active);
     void setValueText(const QString &text);
     QString text() const;
     void showLoading();
@@ -27,12 +29,18 @@ public:
 private:
     void repaintInfoIcon();
 
-    QLabel *m_info = nullptr;
+    void updateDisplay();
+
     QLabel *m_valueLabel = nullptr;
+    QLabel *m_info = nullptr;
     QProgressBar *m_progress = nullptr;
 
     bool m_isDarkMode = false;
     qreal m_dpr = 1.0;
+    QString m_summaryText;
+    QString m_currentValueText;
+    int m_matchCount = 0;
+    bool m_filterActive = false;
     bool m_hasLoadInfo = false;
 
     // Stored for theme repaint

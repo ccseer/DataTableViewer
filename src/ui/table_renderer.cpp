@@ -13,6 +13,7 @@
 #include <QMenu>
 #include <QAction>
 #include <QDebug>
+#include <set>
 
 namespace dtv {
 namespace ui {
@@ -42,6 +43,18 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
     connect(m_proxy, &QAbstractItemModel::rowsInserted, this, [this] {
         emit filterCountChanged(m_proxy->filterMatchCount());
     });
+
+    connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex &current, const QModelIndex & /*previous*/) {
+                if(current.isValid()) {
+                    QString header =
+                        m_model->headerData(current.column(), Qt::Horizontal).toString();
+                    QString value = current.data(Qt::DisplayRole).toString();
+                    emit currentItemChanged(header, value);
+                } else {
+                    emit currentItemChanged("", "");
+                }
+            });
 }
 
 void TableRenderer::setupView()
@@ -59,6 +72,7 @@ void TableRenderer::setupView()
     m_view->setWordWrap(false);
     m_view->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_view->setTabKeyNavigation(false);
+    m_view->horizontalHeader()->setResizeContentsPrecision(100);
 }
 
 void TableRenderer::setData(std::shared_ptr<const core::TableData> data)
@@ -123,31 +137,30 @@ void TableRenderer::copyToClipboard()
         return;
 
     auto indices = selection->selectedIndexes();
-    // Sort by row, then by column
-    std::sort(indices.begin(), indices.end(), [](const QModelIndex &a, const QModelIndex &b) {
+    auto *header = m_view->horizontalHeader();
+
+    // Sort by visual row, then by visual column
+    std::sort(indices.begin(), indices.end(), [header](const QModelIndex &a, const QModelIndex &b) {
         if(a.row() != b.row())
             return a.row() < b.row();
-        return a.column() < b.column();
+        int visA = header->visualIndex(a.column());
+        int visB = header->visualIndex(b.column());
+        return visA < visB;
     });
 
     QString text;
     int lastRow = -1;
-    int firstColInRow = -1;
 
     for(const auto &idx : indices) {
         if(lastRow != -1) {
             if(idx.row() != lastRow) {
                 text += "\n";
-                firstColInRow = -1;
             } else {
                 text += "\t";
             }
         }
 
-        // Get raw data (std::string) and convert to QString
-        // Using DisplayRole is fine as TableModel returns the raw string for it.
         text += idx.data(Qt::DisplayRole).toString();
-
         lastRow = idx.row();
     }
 
@@ -159,7 +172,7 @@ void TableRenderer::showContextMenu(const QPoint &pos)
     QMenu menu(this);
 
     QAction *filterAction = menu.addAction(tr("Filter by Selection"));
-    filterAction->setEnabled(m_view->selectionModel()->hasSelection());
+    filterAction->setEnabled(m_view->selectionModel()->selectedIndexes().size() == 1);
     connect(filterAction, &QAction::triggered, this, &TableRenderer::filterBySelection);
 
     menu.addSeparator();
@@ -207,6 +220,84 @@ void TableRenderer::onHeaderClicked(int column)
     } else {
         m_proxy->sort(-1);
     }
+}
+
+void TableRenderer::copyAsMarkdown()
+{
+    auto indices = m_view->selectionModel()->selectedIndexes();
+    if(indices.isEmpty())
+        return;
+
+    // Use sets to get unique rows and cols
+    std::set<int> rowSet, colSet;
+    for(const auto &idx : indices) {
+        rowSet.insert(idx.row());
+        colSet.insert(idx.column());
+    }
+
+    std::vector<int> rows(rowSet.begin(), rowSet.end());
+    std::vector<int> cols(colSet.begin(), colSet.end());
+
+    auto *header = m_view->horizontalHeader();
+    // Sort columns by visual order
+    std::sort(cols.begin(), cols.end(), [header](int a, int b) {
+        return header->visualIndex(a) < header->visualIndex(b);
+    });
+
+    // Safety limit for Markdown formatting
+    const size_t kMaxMdRows = 1000;
+    bool truncated = false;
+    if(rows.size() > kMaxMdRows) {
+        rows.resize(kMaxMdRows);
+        truncated = true;
+    }
+
+    QString text = "|";
+    for(int col : cols) {
+        QString h = m_model->headerData(col, Qt::Horizontal).toString().replace("|", "\\|");
+        text += h + "|";
+    }
+    text += "\n|";
+    for(size_t i = 0; i < cols.size(); ++i) {
+        text += "---|";
+    }
+    text += "\n";
+
+    for(int row : rows) {
+        text += "|";
+        for(int col : cols) {
+            QModelIndex idx = m_proxy->index(row, col);
+            if(m_view->selectionModel()->isSelected(idx)) {
+                QString cell = idx.data(Qt::DisplayRole).toString();
+                cell.replace("|", "\\|");
+                cell.replace("\n", "<br>");
+                text += cell + "|";
+            } else {
+                text += " |";
+            }
+        }
+        text += "\n";
+    }
+
+    if(truncated) {
+        text += "\n\n*(Truncated: Only first 1000 selected rows were copied as Markdown)*";
+    }
+
+    QGuiApplication::clipboard()->setText(text);
+}
+
+void TableRenderer::resizeColumnsToFit()
+{
+    m_view->resizeColumnsToContents();
+}
+
+void TableRenderer::filterBySelection()
+{
+    auto indices = m_view->selectionModel()->selectedIndexes();
+    if(indices.isEmpty())
+        return;
+
+    emit requestFilter(indices.first().data(Qt::DisplayRole).toString());
 }
 
 } // namespace ui

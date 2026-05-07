@@ -61,9 +61,19 @@ QString SearchBar::text() const
     return m_edit->text();
 }
 
+void SearchBar::setText(const QString &text)
+{
+    m_edit->setText(text);
+}
+
 void SearchBar::clear()
 {
     m_edit->clear();
+}
+
+void SearchBar::selectAll()
+{
+    m_edit->selectAll();
 }
 
 void SearchBar::updateDPR(qreal r)

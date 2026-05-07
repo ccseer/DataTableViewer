@@ -80,45 +80,79 @@ void StatusBar::setLoadInfo(int rowCount, int colCount, qint64 fileBytes, qint64
     m_tooltipLines = lines.join("\n");
     m_hasLoadInfo = true;
 
+    // Build a summary for restoration when no item is selected
+    if(truncated) {
+        if(totalRows > 0) {
+            m_summaryText = QString("%1  ·  Showing %L2 of %L3 rows  ·  %4 columns")
+                                .arg(formatName)
+                                .arg(rowCount)
+                                .arg(totalRows)
+                                .arg(colCount);
+        } else {
+            m_summaryText = QString("%1  ·  %L2+ rows  ·  %3 columns")
+                                .arg(formatName)
+                                .arg(rowCount)
+                                .arg(colCount);
+        }
+    } else {
+        m_summaryText = QString("%1  ·  %L2 rows  ·  %3 columns  ·  %4 ms")
+                            .arg(formatName)
+                            .arg(rowCount)
+                            .arg(colCount)
+                            .arg(elapsedMs);
+    }
+
     m_info->setToolTip(m_tooltipLines);
     repaintInfoIcon();
     m_progress->hide();
 
-    // Set a summary text in the value label
-    QString summary;
-    if(truncated) {
-        if(totalRows > 0) {
-            summary = QString("%1  ·  Showing %L2 of %L3 rows  ·  %4 columns  ·  local sort only")
-                          .arg(formatName)
-                          .arg(rowCount)
-                          .arg(totalRows)
-                          .arg(colCount);
-        } else {
-            summary = QString("%1  ·  %L2+ rows  ·  %3 columns")
-                          .arg(formatName)
-                          .arg(rowCount)
-                          .arg(colCount);
-        }
-    } else {
-        summary = QString("%1  ·  %L2 rows  ·  %3 columns  ·  %4 ms")
-                      .arg(formatName)
-                      .arg(rowCount)
-                      .arg(colCount)
-                      .arg(elapsedMs);
+    setValueText(m_summaryText);
+}
+
+void StatusBar::setWarning(const QString &warning)
+{
+    if(warning.isEmpty())
+        return;
+
+    QString warnText = QString("  (Warning: %1)").arg(warning);
+    m_summaryText += warnText;
+    m_tooltipLines += "\n" + warnText;
+    m_info->setToolTip(m_tooltipLines);
+
+    // If we are currently showing the summary (no selection), update it immediately
+    if(m_currentValueText.isEmpty() ||
+       m_currentValueText == m_summaryText.left(m_summaryText.length() - warnText.length())) {
+        setValueText(m_summaryText);
     }
-    setValueText(summary);
+}
+
+void StatusBar::setFilterMatchCount(int count, bool active)
+{
+    m_matchCount = count;
+    m_filterActive = active;
+    updateDisplay();
 }
 
 void StatusBar::setValueText(const QString &text)
 {
-    if(text.isEmpty()) {
-        m_valueLabel->clear();
-        m_valueLabel->setToolTip({});
-        return;
+    m_currentValueText = text;
+    updateDisplay();
+}
+
+void StatusBar::updateDisplay()
+{
+    QString display = m_currentValueText;
+    if(m_filterActive) {
+        display = QString("[Matches: %1]  %2").arg(m_matchCount).arg(m_currentValueText);
     }
 
-    m_valueLabel->setText(text);
-    m_valueLabel->setToolTip(text);
+    if(display.isEmpty()) {
+        m_valueLabel->clear();
+        m_valueLabel->setToolTip({});
+    } else {
+        m_valueLabel->setText(display);
+        m_valueLabel->setToolTip(display);
+    }
 }
 
 QString StatusBar::text() const
@@ -129,6 +163,7 @@ QString StatusBar::text() const
 void StatusBar::showLoading()
 {
     m_hasLoadInfo = false;
+    m_filterActive = false;
     m_info->setPixmap(QPixmap());
     m_info->setText("Loading...");
     m_info->setToolTip("DataTableViewer");
@@ -146,11 +181,14 @@ void StatusBar::showFilterNoHits(const QString &text)
 void StatusBar::restoreInfo()
 {
     m_info->setText({});
-    if(m_hasLoadInfo)
+    if(m_hasLoadInfo) {
         repaintInfoIcon();
-    else {
+        setValueText(m_summaryText);
+    } else {
+        m_filterActive = false;
         m_info->setPixmap(QPixmap());
         m_info->setToolTip("DataTableViewer");
+        setValueText({});
     }
     m_progress->hide();
 }
@@ -171,6 +209,7 @@ void StatusBar::updateTheme(bool dark, qreal dpr)
 void StatusBar::clear()
 {
     m_hasLoadInfo = false;
+    m_filterActive = false;
     m_info->setPixmap(QPixmap());
     m_info->clear();
     m_info->setToolTip("DataTableViewer");

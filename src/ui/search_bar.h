@@ -15,7 +15,9 @@ public:
     explicit SearchBar(QWidget *parent = nullptr);
 
     QString text() const;
+    void setText(const QString &text);
     void clear();
+    void selectAll();
     void updateDPR(qreal r);
     void updateTheme(bool dark);
 

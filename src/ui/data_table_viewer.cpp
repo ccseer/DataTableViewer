@@ -72,19 +72,24 @@ void DataTableViewer::init()
         m_search->setText(text);
     });
 
+    connect(m_renderer, &dtv::ui::TableRenderer::currentItemChanged, this,
+            [this](const QString &header, const QString &value) {
+                if(header.isEmpty()) {
+                    m_status->restoreInfo();
+                } else {
+                    m_status->setValueText(QString("%1 : %2").arg(header).arg(value));
+                }
+            });
+
     connect(m_renderer, &dtv::ui::TableRenderer::filterCountChanged, this, [this](int matches) {
-        if(!m_search->text().isEmpty()) {
-            m_status->setValueText(QString("Matches: %1").arg(matches));
-        } else {
-            m_status->restoreInfo();
-        }
+        m_status->setFilterMatchCount(matches, !m_search->text().isEmpty());
     });
 
     auto *findShortcut = new QShortcut(QKeySequence::Find, this);
     findShortcut->setContext(Qt::WidgetWithChildrenShortcut);
     connect(findShortcut, &QShortcut::activated, this, [this] {
         m_search->setFocus();
-        m_search->clear();
+        m_search->selectAll();
     });
 }
 
@@ -190,6 +195,11 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
 {
     cancelPending();
 
+    m_renderer->clear();
+    m_search->clear();
+    m_status->showLoading();
+    m_search->setEnabled(false);
+
     QFileInfo info(path);
     auto parser = dtv::core::ParserRegistry::instance().createParser(info.suffix().toStdString());
     if(!parser) {
@@ -197,10 +207,6 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
         sigCommand(VCT_StateChange, VCV_Error);
         return;
     }
-
-    m_renderer->clear();
-    m_status->showLoading();
-    m_search->setEnabled(false);
 
     auto *thread = new BackgroundThread;
     auto *worker = new dtv::workers::TableWorker(std::move(parser), path, tableName, m_generation);
@@ -276,8 +282,7 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
         }
 
         if(!result->warning.empty()) {
-            m_status->setValueText(m_status->text() +
-                                   "  (Warning: " + QString::fromStdString(result->warning) + ")");
+            m_status->setWarning(QString::fromStdString(result->warning));
         }
 
         sigCommand(VCT_StateChange, VCV_Loaded);

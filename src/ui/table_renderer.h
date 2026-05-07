@@ -31,6 +31,7 @@ public:
 signals:
     void filterCountChanged(int matches);
     void requestFilter(const QString &text);
+    void currentItemChanged(const QString &header, const QString &value);
 
 public slots:
     void copyToClipboard();

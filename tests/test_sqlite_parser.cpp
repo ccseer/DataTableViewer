@@ -1,44 +1,30 @@
 #include <QtTest>
-#include <QSqlDatabase>
-#include <QSqlQuery>
-#include <QSqlError>
+#include <sqlite3.h>
 #include "parsers/sqlite_parser.h"
 
 class TestSqliteParser : public QObject {
     Q_OBJECT
 private slots:
-    void initTestCase()
-    {
-        // Create a test database
-        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "test_db");
-        db.setDatabaseName(":memory:");
-        QVERIFY(db.open());
-
-        QSqlQuery query(db);
-        QVERIFY(query.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"));
-        QVERIFY(query.exec("INSERT INTO users (name) VALUES ('Alice'), ('Bob')"));
-        db.close();
-    }
-
     void testBasicParse()
     {
-        // We can't easily test the parser with :memory: because it re-opens the file
-        // So we'll create a temporary file
-        QString path = "test_parser.sqlite";
+        const char *path = "test_parser.sqlite";
+        QFile::remove(path); // Ensure a fresh start [P2]
+
         {
-            QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "temp_db");
-            db.setDatabaseName(path);
-            QVERIFY(db.open());
-            QSqlQuery query(db);
-            query.exec("CREATE TABLE items (id INTEGER, val TEXT)");
-            query.exec("INSERT INTO items VALUES (1, 'A'), (2, 'B')");
-            db.close();
+            sqlite3 *db = nullptr;
+            QCOMPARE(sqlite3_open(path, &db), SQLITE_OK);
+            QCOMPARE(sqlite3_exec(db, "CREATE TABLE items (id INTEGER, val TEXT)", nullptr, nullptr,
+                                  nullptr),
+                     SQLITE_OK);
+            QCOMPARE(sqlite3_exec(db, "INSERT INTO items VALUES (1, 'A'), (2, 'B')", nullptr,
+                                  nullptr, nullptr),
+                     SQLITE_OK);
+            sqlite3_close(db);
         }
 
         dtv::parsers::SqliteParser parser;
         dtv::core::ParseInput input;
-        std::string pathStr = path.toStdString();
-        input.file_path = pathStr;
+        input.file_path = path;
 
         // 1. Get tables
         auto result = parser.parse(input);
@@ -46,12 +32,11 @@ private slots:
             qDebug() << "Phase 1 error:" << QString::fromStdString(result.error);
         QVERIFY(result.ok);
         QVERIFY(result.data == nullptr);
-        QCOMPARE(result.table_names.size(), 1ull); // One table: items
+        QCOMPARE(result.table_names.size(), 1ull);
         QCOMPARE(result.table_names[0], std::string("items"));
 
         // 2. Get table data
-        std::string tableName = "items";
-        input.table_name = tableName;
+        input.table_name = "items";
         result = parser.parse(input);
         if(!result.ok)
             qDebug() << "Phase 2 error:" << QString::fromStdString(result.error);
@@ -67,8 +52,7 @@ private slots:
     {
         dtv::parsers::SqliteParser parser;
         dtv::core::ParseInput input;
-        std::string invalidPath = "non_existent.sqlite";
-        input.file_path = invalidPath;
+        input.file_path = "non_existent_dir/non_existent.sqlite";
 
         auto result = parser.parse(input);
         QVERIFY(!result.ok);

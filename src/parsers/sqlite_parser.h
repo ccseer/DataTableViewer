@@ -20,7 +20,7 @@ public:
     }
     std::string library_credit() const override
     {
-        return "Qt QSQLITE driver";
+        return "SQLite Project";
     }
 };
 

@@ -18,6 +18,11 @@ database tool.
 - **Status bar metrics**: format, row count, column count, file size, load time, warnings, and truncation hints
 - **Async parsing**: background-thread parsing and cancellation keep Seer responsive while switching files
 
+## Screenshots
+
+![](res/sql.tables.png)
+![](res/table.png)
+
 ## Supported Formats
 
 - `.csv`
@@ -35,6 +40,12 @@ Requirements:
 - Qt 6.8
 - CMake 3.16+
 - Visual Studio 2022 or newer with MSVC
+- vcpkg, available through `VCPKG_ROOT`
+
+SQLite is consumed through the vcpkg manifest in `vcpkg.json`. The checked-in
+CMake preset uses the `x64-windows-static-md` triplet so SQLite is linked into
+`datatableviewer.dll` while keeping the MSVC runtime dynamic and compatible with
+Qt. This avoids shipping a separate `sqlite3.dll` with the plugin.
 
 Recommended Visual Studio flow:
 
@@ -61,6 +72,9 @@ Space on a file to preview it without opening a full application.
 3. Install or place the DataTableViewer plugin files.
 4. Ensure `datatableviewer.dll` and `plugin.json` are in the same plugin folder.
 5. Press Space on a supported CSV, TSV, or SQLite file.
+
+SQLite support is statically linked into `datatableviewer.dll`; no separate
+SQLite runtime DLL is required in the plugin folder.
 
 ## Development Notes
 

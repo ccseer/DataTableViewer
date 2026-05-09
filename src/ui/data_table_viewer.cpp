@@ -18,9 +18,7 @@
 #include <QPointer>
 #include <QSettings>
 #include <QDebug>
-#include <QThread>
 #include <QCoreApplication>
-#include <QSqlDatabase>
 
 #define qprintt qDebug() << "[DataTableViewer]"
 
@@ -64,10 +62,7 @@ void DataTableViewer::init()
         qprintt << "get DLL path failed" << path;
     }
 
-    m_sqliteAvailable = QSqlDatabase::drivers().contains("QSQLITE");
-    if(!m_sqliteAvailable) {
-        qprintt << "No SQL drivers found. SQLite support will report an error if used.";
-    }
+    m_sqliteAvailable = true;
 
     m_stack = new QStackedLayout;
     m_stack->addWidget(m_renderer);

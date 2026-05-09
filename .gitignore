@@ -165,4 +165,3 @@ x86/
 .claude/*
 AGENTS.md
 CMakeUserPresets.json
-CMakePresets.json

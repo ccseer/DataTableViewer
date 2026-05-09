@@ -10,7 +10,8 @@ if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TY
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Sql Svg)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 # ---- SeerSdk (plugin host interface) ----
 include(FetchContent)
@@ -76,7 +77,8 @@ target_include_directories(datatableviewer PRIVATE src/)
 
 target_link_libraries(datatableviewer PRIVATE
     SeerSdk::SeerSdk
-    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Svg
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg
+    unofficial::sqlite3::sqlite3
 )
 
 set_target_properties(datatableviewer PROPERTIES
@@ -109,7 +111,7 @@ if(BUILD_TESTS)
     function(add_table_test NAME SOURCE)
         add_executable(${NAME} ${SOURCE})
         target_include_directories(${NAME} PRIVATE src/)
-        target_link_libraries(${NAME} PRIVATE Qt6::Test Qt6::Sql Qt6::Svg)
+        target_link_libraries(${NAME} PRIVATE Qt6::Test Qt6::Svg unofficial::sqlite3::sqlite3)
         target_sources(${NAME} PRIVATE
             ${CORE_SOURCES}
             ${PARSER_SOURCES}

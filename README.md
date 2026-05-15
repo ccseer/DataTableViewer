@@ -84,3 +84,7 @@ format registration, lifecycle, threading, and release-check expectations.
 ## License
 
 MIT © 2026 ccseer
+
+
+## TODO: 
+- control bar btn: view in Text viewer

@@ -81,9 +81,6 @@ SQLite runtime DLL is required in the plugin folder.
 Operational project rules live in [AGENTS.md](AGENTS.md). Use it for architecture,
 format registration, lifecycle, threading, and release-check expectations.
 
-## License
-
-MIT © 2026 ccseer
 
 
 ## TODO: 

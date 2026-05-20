@@ -85,3 +85,4 @@ format registration, lifecycle, threading, and release-check expectations.
 
 ## TODO: 
 - control bar btn: view in Text viewer
+- pages for large file

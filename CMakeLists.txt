@@ -25,6 +25,9 @@ FetchContent_MakeAvailable(SeerSdk)
 
 # ---- Sources ----
 set(CORE_SOURCES
+    src/core/table_source.cpp
+    src/core/table_source.h
+    src/core/pager_state.h
     src/core/table_data.h
     src/core/itable_parser.h
     src/core/type_inferrer.h
@@ -38,6 +41,8 @@ set(PARSER_SOURCES
     src/parsers/csv_parser.cpp
     src/parsers/sqlite_parser.h
     src/parsers/sqlite_parser.cpp
+    src/parsers/sqlite_table_source.h
+    src/parsers/sqlite_table_source.cpp
     src/parsers/sqlite_common.h
     src/parsers/sqlite_common.cpp
 )
@@ -127,6 +132,13 @@ if(BUILD_TESTS)
     add_table_test(test_csv_parser    tests/test_csv_parser.cpp)
     add_table_test(test_type_inferrer tests/test_type_inferrer.cpp)
     add_table_test(test_sqlite_parser  tests/test_sqlite_parser.cpp)
+
+    add_executable(test_sqlite_table_source tests/test_sqlite_table_source.cpp
+        src/parsers/sqlite_table_source.cpp src/parsers/sqlite_common.cpp src/core/table_source.cpp)
+    target_include_directories(test_sqlite_table_source PRIVATE src/)
+    target_link_libraries(test_sqlite_table_source PRIVATE Qt6::Test unofficial::sqlite3::sqlite3)
+    add_test(NAME test_sqlite_table_source COMMAND test_sqlite_table_source)
+    list(APPEND TABLE_TEST_TARGETS test_sqlite_table_source)
 
     add_executable(test_table_model tests/test_table_model.cpp)
     target_include_directories(test_table_model PRIVATE src/)

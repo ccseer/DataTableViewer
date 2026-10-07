@@ -52,13 +52,6 @@ private slots:
         QVERIFY(!opened.uri_mode);
         QVERIFY(!opened.immutable);
         QCOMPARE(opened.effective_name, path);
-        dtv::core::ParseInput input;
-        input.file_path = path;
-        input.table_name = "items";
-        dtv::parsers::SqliteParser parser;
-        const auto result = parser.parse(input);
-        QVERIFY2(result.ok, result.error.c_str());
-        QCOMPARE(result.data->rows.at(0).at(0), std::string("ok"));
     }
 
     void testMissingFileNoFallback()
@@ -102,16 +95,6 @@ private slots:
         QVERIFY(result.data == nullptr);
         QCOMPARE(result.table_names.size(), 1ull);
         QCOMPARE(result.table_names[0], std::string("items"));
-
-        // 2. Get table data
-        input.table_name = "items";
-        result = parser.parse(input);
-        if(!result.ok)
-            qDebug() << "Phase 2 error:" << QString::fromStdString(result.error);
-        QVERIFY(result.ok);
-        QCOMPARE(result.data->columns.size(), 2ull);
-        QCOMPARE(result.data->rows.size(), 2ull);
-        QCOMPARE(result.data->rows[0][1], std::string("A"));
 
         QFile::remove(path);
     }

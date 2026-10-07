@@ -11,11 +11,12 @@ database tool.
 ## Features
 
 - **CSV and TSV preview**: header detection, quoted-field handling, BOM stripping, and tab/comma support
-- **SQLite preview**: browse database tables, pick one, then preview rows
+- **SQLite preview**: browse database tables, pick one, then page through large tables without loading the whole database
+- **SQLite paging**: configurable page size, asynchronous row counts, server-side sorting, and current-page-only filtering
 - **Interactive table view**: sortable columns, movable/resizable headers, alternating rows, and TSV copy
 - **Type-aware sorting**: numeric columns sort by numeric value instead of plain text
 - **Live filtering**: search across the current table while keeping the UI responsive
-- **Status bar metrics**: format, row count, column count, file size, load time, warnings, and truncation hints
+- **Status bar metrics**: format, row count, column count, file size, load time, warnings, and paging progress
 - **Async parsing**: background-thread parsing and cancellation keep Seer responsive while switching files
 
 ## Screenshots

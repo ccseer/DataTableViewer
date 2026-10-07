@@ -51,6 +51,10 @@ set(WORKER_SOURCES
     src/workers/background_thread.h
     src/workers/table_worker.h
     src/workers/table_worker.cpp
+    src/workers/source_worker.h
+    src/workers/source_worker.cpp
+    src/workers/count_worker.h
+    src/workers/count_worker.cpp
 )
 
 set(UI_SOURCES
@@ -149,6 +153,16 @@ if(BUILD_TESTS)
     )
     add_test(NAME test_table_model COMMAND test_table_model)
     list(APPEND TABLE_TEST_TARGETS test_table_model)
+
+    add_executable(test_source_worker tests/test_source_worker.cpp
+        ${CORE_SOURCES}
+        ${PARSER_SOURCES}
+        ${WORKER_SOURCES}
+    )
+    target_include_directories(test_source_worker PRIVATE src/)
+    target_link_libraries(test_source_worker PRIVATE Qt6::Test Qt6::Core unofficial::sqlite3::sqlite3)
+    add_test(NAME test_source_worker COMMAND test_source_worker)
+    list(APPEND TABLE_TEST_TARGETS test_source_worker)
 
     add_custom_target(run_all_tests
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure

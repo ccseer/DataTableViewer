@@ -101,6 +101,7 @@ bool validSize(int size) {
 
 struct SqliteTableSource::Impl {
     sqlite3 *db = nullptr;
+    std::shared_ptr<InterruptHandle> interruptHandle;
     std::string table;
     std::string rowid;
     std::string orderTable;
@@ -109,7 +110,13 @@ struct SqliteTableSource::Impl {
     std::vector<std::pair<int, std::string>> primaryKey;
     std::optional<int64_t> total;
     core::CancelCheck cancel;
+
+    explicit Impl(std::shared_ptr<InterruptHandle> h, core::CancelCheck c = {})
+        : interruptHandle(std::move(h)), cancel(std::move(c)) {}
+
     ~Impl() {
+        if(interruptHandle)
+            interruptHandle->clear();
         if(db)
             sqlite3_close(db);
     }
@@ -278,11 +285,14 @@ struct SqliteTableSource::Impl {
     }
 };
 
-SqliteTableSource::SqliteTableSource() : m_impl(std::make_unique<Impl>()) {
+SqliteTableSource::SqliteTableSource(std::shared_ptr<InterruptHandle> handle)
+    : m_interruptHandle(handle ? std::move(handle) : std::make_shared<InterruptHandle>()),
+      m_impl(std::make_unique<Impl>(m_interruptHandle)) {
 }
 SqliteTableSource::~SqliteTableSource() = default;
 bool SqliteTableSource::open(const std::string &path, const std::string &table) {
-    m_impl = std::make_unique<Impl>();
+    auto previousCancel = m_impl ? m_impl->cancel : core::CancelCheck{};
+    m_impl = std::make_unique<Impl>(m_interruptHandle, previousCancel);
     auto &s = *m_impl;
     auto opened = openReadOnly(path);
     if(!opened.db) {
@@ -290,16 +300,45 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
         return false;
     }
     s.db = opened.db;
+    s.interruptHandle->setDb(s.db);
+    s.installProgress();
     s.table = table;
-    auto metadata = s.prepare("SELECT * FROM main." + quoted(table) + " LIMIT 0");
-    if(!metadata)
+
+    bool success = false;
+    struct CleanupOnFailure {
+        Impl &impl;
+        bool &success;
+        ~CleanupOnFailure() {
+            if(!success && impl.db) {
+                if(impl.interruptHandle)
+                    impl.interruptHandle->clear();
+                sqlite3_close(impl.db);
+                impl.db = nullptr;
+            }
+        }
+    } cleanupGuard{s, success};
+
+    if(s.cancelled()) {
+        s.error = "Cancelled";
         return false;
+    }
+
+    auto metadata = s.prepare("SELECT * FROM main." + quoted(table) + " LIMIT 0");
+    if(!metadata || s.cancelled()) {
+        if(s.cancelled())
+            s.error = "Cancelled";
+        return false;
+    }
     const int count = sqlite3_column_count(metadata.get());
     for(int col = 0; col < count; ++col)
         s.columns.push_back({sqlite3_column_name(metadata.get(), col),
                              columnType(sqlite3_column_decltype(metadata.get(), col))});
     metadata.reset();
     for(const char *alias : {"rowid", "_rowid_", "oid"}) {
+        if(s.cancelled()) {
+            s.error = "Cancelled";
+            return false;
+        }
         const bool shadowed = std::any_of(s.columns.begin(), s.columns.end(), [&](const auto &col) {
             return asciiLower(col.name) == alias;
         });
@@ -319,14 +358,25 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
             break;
         }
     }
+    if(s.cancelled()) {
+        s.error = "Cancelled";
+        return false;
+    }
     if(s.rowid.empty()) {
         auto info = s.prepare("PRAGMA main.table_xinfo(" + quoted(table) + ")");
-        if(!info)
+        if(!info || s.cancelled()) {
+            if(s.cancelled())
+                s.error = "Cancelled";
             return false;
+        }
         std::vector<std::pair<int, std::string>> ordered;
         bool allPrimaryKeyColumnsNotNull = true;
         int rc;
         while((rc = sqlite3_step(info.get())) == SQLITE_ROW) {
+            if(s.cancelled()) {
+                s.error = "Cancelled";
+                return false;
+            }
             const int pk = sqlite3_column_int(info.get(), 5);
             if(pk) {
                 allPrimaryKeyColumnsNotNull &= sqlite3_column_int(info.get(), 3) != 0;
@@ -340,7 +390,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
             }
         }
         if(rc != SQLITE_DONE) {
-            s.error = sqlite3_errmsg(s.db);
+            s.error = s.cancelled() ? "Cancelled" : sqlite3_errmsg(s.db);
             return false;
         }
         // Ordinary SQLite primary keys can contain duplicate NULL tuples.
@@ -356,7 +406,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
         }
     }
     s.error.clear();
-    s.installProgress();
+    success = true;
     return true;
 }
 const std::string &SqliteTableSource::error() const {
@@ -399,7 +449,15 @@ bool SqliteTableSource::canRefetch() const {
     return !m_impl->rowid.empty() || !m_impl->primaryKey.empty();
 }
 void SqliteTableSource::setCancelCheck(core::CancelCheck cancel) {
-    m_impl->cancel = std::move(cancel);
+    if(m_impl)
+        m_impl->cancel = std::move(cancel);
+}
+std::shared_ptr<InterruptHandle> SqliteTableSource::interruptHandle() const {
+    return m_interruptHandle;
+}
+void SqliteTableSource::interrupt() {
+    if(m_interruptHandle)
+        m_interruptHandle->interrupt();
 }
 bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck cancel) {
     auto &s = *m_impl;
@@ -421,6 +479,7 @@ bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck ca
         restore();
         return false;
     }
+    s.installProgress();
     static std::atomic<uint64_t> sequence{0};
     const auto staging = "dtv_ord_" + std::to_string(++sequence);
     const auto direction = ascending ? " ASC" : " DESC";

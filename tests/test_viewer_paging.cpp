@@ -14,6 +14,9 @@
 #include <QStackedLayout>
 #include <QPushButton>
 #include <QHeaderView>
+#include <QLabel>
+#include <QSignalSpy>
+#include "workers/source_worker.h"
 
 class TestViewerPaging : public QObject {
     Q_OBJECT
@@ -24,6 +27,10 @@ private slots:
     void test1MRowDatabaseOpensAndPages();
     void testSmallTableHidesPager();
     void testCsvUnchanged();
+    void testServerSortAndCancel();
+    void testRealHeaderClicksKeepCommittedIndicator();
+    void testLateSortCancelAndReplacement();
+    void testCopySurvivesPageTurnAndLatestWins();
     void testBackButtonTeardown();
     void testHeaderStatePreservedAcrossPageTurns();
     void testCountRequestedOnlyOnceOnPageTurns();
@@ -199,10 +206,24 @@ void TestViewerPaging::testCsvUnchanged() {
     setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
     QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
 
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
     // CSV/TSV is materialized, pager must be hidden
     QVERIFY(!viewer.m_isPaged);
     QVERIFY(viewer.m_pageBar->isHidden());
     QVERIFY(!viewer.m_renderer->isPagedMode());
+    auto header = viewer.m_renderer->horizontalHeader();
+    header->sectionClicked(0);
+    QVERIFY(header->isSortIndicatorShown());
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+    header->sectionClicked(0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+    header->sectionClicked(0);
+    QVERIFY(!header->isSortIndicatorShown());
+    viewer.m_renderer->selectCell(0, 0);
+    viewer.m_renderer->copyToClipboard();
+    QCOMPARE(QGuiApplication::clipboard()->text(),
+             viewer.m_renderer->model()->index(0, 0).data().toString());
 }
 
 void TestViewerPaging::testBackButtonTeardown() {
@@ -412,6 +433,173 @@ void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken() {
     // Prev still works with the kept token
     viewer.onPrevPageClicked();
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
+}
+
+void TestViewerPaging::testServerSortAndCancel() {
+    DataTableViewer viewer;
+    ViewOptionsPrivate priv;
+    ViewOptions opts;
+    setupViewer(viewer, m_smallDbPath, priv, opts);
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
+    viewer.loadSelectedTable(m_smallDbPath, "items");
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    viewer.m_pagerState.pageSize = 10;
+    auto header = viewer.m_renderer->horizontalHeader();
+    header->sectionClicked(0);
+    QTRY_VERIFY(header->isSortIndicatorShown());
+    QTRY_COMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1"));
+    header->sectionClicked(0);
+    QTRY_COMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("50"));
+    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+    header->sectionClicked(1);
+    QMetaObject::invokeMethod(&viewer, "cancelSort", Qt::DirectConnection);
+    QTRY_VERIFY(!viewer.m_sorting);
+    QCOMPARE(header->sortIndicatorSection(), 0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+    viewer.onNextPageClicked();
+    QVERIFY(viewer.m_pageFetchInFlight);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 2000);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("40"));
+    viewer.onFirstPageClicked();
+    QVERIFY(viewer.m_pageFetchInFlight);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("50"));
+}
+
+void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator() {
+    DataTableViewer viewer;
+    ViewOptionsPrivate priv;
+    ViewOptions opts;
+    setupViewer(viewer, m_1mDbPath, priv, opts);
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
+    viewer.loadSelectedTable(m_1mDbPath, "items");
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    viewer.resize(960, 600);
+    viewer.show();
+    QLabel *sortingLabel = nullptr;
+    for(auto label : viewer.m_status->findChildren<QLabel *>()) {
+        if(label->text().contains("href=\"cancel\"")) sortingLabel = label;
+    }
+    QVERIFY(sortingLabel);
+    auto header = viewer.m_renderer->horizontalHeader();
+    auto click = [header](int column) {
+        QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier,
+                         QPoint(header->sectionViewportPosition(column) + 20,
+                                header->height() / 2), 0);
+    };
+    click(0);
+    QVERIFY(viewer.m_sorting);
+    QVERIFY(!sortingLabel->isHidden());
+    QVERIFY(!header->isSortIndicatorShown());
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+
+    viewer.onNextPageClicked();
+    QVERIFY(viewer.m_pageFetchInFlight);
+    click(1);
+    QVERIFY(!viewer.m_sorting);
+    QCOMPARE(header->sortIndicatorSection(), 0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+    QTRY_VERIFY(!viewer.m_pageFetchInFlight);
+
+    click(0);
+    QVERIFY(viewer.m_sorting);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+    viewer.cancelSort();
+    QVERIFY(viewer.m_recoveringSort);
+    QVERIFY(sortingLabel->isHidden());
+    click(1);
+    QCOMPARE(header->sortIndicatorSection(), 0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+
+    click(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1000000"));
+}
+
+void TestViewerPaging::testLateSortCancelAndReplacement() {
+    DataTableViewer viewer;
+    ViewOptionsPrivate priv;
+    ViewOptions opts;
+    setupViewer(viewer, m_1mDbPath, priv, opts);
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
+    viewer.loadSelectedTable(m_1mDbPath, "items");
+    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    auto header = viewer.m_renderer->horizontalHeader();
+    header->sectionClicked(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    header->sectionClicked(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1000000"));
+    // Cancel from the worker finish boundary, after source order promotion.
+    auto once = std::make_shared<std::atomic<bool>>(false);
+    auto worker = viewer.m_sourceWorker;
+    QMetaObject::invokeMethod(worker, [worker, &viewer, once] {
+        worker->setFinishHook([&viewer, once] {
+            if(!once->exchange(true)) {
+                QMetaObject::invokeMethod(&viewer, [&viewer] { viewer.cancelSort(); },
+                                          Qt::BlockingQueuedConnection);
+            }
+        });
+    }, Qt::QueuedConnection);
+    auto viewGen = viewer.m_viewGen->load();
+    header->sectionClicked(1);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    QCOMPARE(viewer.m_viewGen->load(), viewGen);
+    QCOMPARE(header->sortIndicatorSection(), 0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
+    viewer.onNextPageClicked();
+    QTRY_VERIFY(!viewer.m_pageFetchInFlight);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("999500"));
+    header->sectionClicked(1);
+    header->sectionClicked(0);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
+    QCOMPARE(header->sortIndicatorSection(), 0);
+    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
+    QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1"));
+}
+
+void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
+    dtv::ui::TableRenderer renderer;
+    auto data = std::make_shared<dtv::core::TableData>();
+    data->columns.push_back({"text", dtv::core::ColumnMeta::Type::String});
+    data->rows.push_back({"clamped"});
+    dtv::core::RefetchKey key;
+    key.rowid = 1;
+    renderer.setPageData(data, {key}, {{true}});
+    QSignalSpy requests(&renderer, SIGNAL(refetchRowsRequested(uint64_t,bool,std::vector<std::pair<int,dtv::core::RefetchKey>>)));
+    renderer.selectCell(0, 0);
+    renderer.copyToClipboard();
+    QVERIFY(requests.isValid());
+    QCOMPARE(requests.count(), 1);
+    auto request = requests.last().at(0).toULongLong();
+    renderer.setPageData(data, {key}, {{false}});
+    dtv::core::RefetchResult result;
+    result.ok = true;
+    result.values = {QString(2000, QChar(0x4e2d)).toStdString() + "\r\nend"};
+    renderer.onRefetchRowsCompleted(request, {{0, result}});
+    QCOMPARE(QGuiApplication::clipboard()->text(), QString(2000, QChar(0x4e2d)) + " end");
+    renderer.setPageData(data, {key}, {{true}});
+    renderer.selectCell(0, 0);
+    renderer.copyToClipboard();
+    auto oldRequest = requests.last().at(0).toULongLong();
+    renderer.setPageData(data, {key}, {{false}});
+    renderer.selectCell(0, 0);
+    renderer.copyToClipboard();
+    renderer.onRefetchRowsCompleted(oldRequest, {{0, result}});
+    QCOMPARE(QGuiApplication::clipboard()->text(), QString("clamped"));
+    renderer.setPageData(data, {key}, {{true}});
+    renderer.selectCell(0, 0);
+    renderer.copyAsMarkdown();
+    request = requests.last().at(0).toULongLong();
+    auto next = std::make_shared<dtv::core::TableData>(*data);
+    next->columns[0].name = "changed";
+    renderer.setPageData(next, {key}, {{false}});
+    renderer.onRefetchRowsCompleted(request, {{0, result}});
+    QVERIFY(QGuiApplication::clipboard()->text().startsWith("|text|"));
+    QVERIFY(QGuiApplication::clipboard()->text().contains(QString(2000, QChar(0x4e2d)) + " end"));
 }
 
 QTEST_MAIN(TestViewerPaging)

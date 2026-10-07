@@ -1,4 +1,5 @@
 #include "table_renderer.h"
+#include "cell_text.h"
 #include "table_model.h"
 #include "table_filter_proxy.h"
 
@@ -101,7 +102,6 @@ void TableRenderer::setPageData(std::shared_ptr<const core::TableData> data,
     m_pagedMode = true;
     m_pageKeys = std::move(keys);
     m_pageClamped = std::move(clamped);
-    m_pendingCopy.reset();
     m_model->setTableData(data, true);
     m_proxy->invalidate();
     if(m_view && m_model->rowCount() > 0) {
@@ -242,6 +242,7 @@ void TableRenderer::performCopy(bool isMarkdown)
         cell.modelRow = mRow;
         cell.modelCol = mCol;
         cell.displayedText = idx.data(Qt::DisplayRole).toString();
+        cell.headerText = m_proxy->headerData(idx.column(), Qt::Horizontal).toString();
         cell.clamped = clamped;
         pending.cells.push_back(cell);
 
@@ -253,6 +254,7 @@ void TableRenderer::performCopy(bool isMarkdown)
     }
 
     if(rowsToRefetch.empty()) {
+        m_pendingCopy.reset();
         // No cells need refetching: write directly to clipboard!
         QGuiApplication::clipboard()->setText(isMarkdown ? buildMarkdownText(pending.cells, {})
                                                          : buildPlainText(pending.cells, {}));
@@ -285,7 +287,7 @@ QString TableRenderer::buildPlainText(const std::vector<PendingCopyCell> &cells,
         if(lastRow != -1) {
             text += (cell.visRow != lastRow) ? "\n" : "\t";
         }
-        text += TableModel::singleLineDisplayText(rawCellText(cell, refetched).toStdString());
+        text += singleLineDisplayText(rawCellText(cell, refetched).toStdString());
         lastRow = cell.visRow;
     }
     return text;
@@ -302,8 +304,6 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
     std::vector<int> rows(rowSet.begin(), rowSet.end());
     std::vector<int> cols(colSet.begin(), colSet.end());
 
-    auto *header = m_view->horizontalHeader();
-
     // Safety limit for Markdown formatting
     const size_t kMaxMdRows = 1000;
     bool truncated = false;
@@ -314,8 +314,9 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
 
     QString text = "|";
     for(int col : cols) {
-        int logCol = header->logicalIndex(col);
-        QString h = m_proxy->headerData(logCol, Qt::Horizontal).toString().replace("|", "\\|");
+        auto found = std::find_if(cells.begin(), cells.end(), [col](const auto &c) { return c.visCol == col; });
+        QString h = found->headerText;
+        h.replace("|", "\\|");
         text += h + "|";
     }
     text += "\n|";
@@ -339,8 +340,8 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
             const bool present = cell < cells.size() && cells[cell].visRow == row &&
                                  cells[cell].visCol == col;
             if(present) {
-                QString val = rawCellText(cells[cell], refetched);
-                val.replace("|", "\\|").replace("\n", "<br>");
+                QString val = singleLineDisplayText(rawCellText(cells[cell], refetched).toStdString());
+                val.replace("|", "\\|");
                 text += val + "|";
             } else {
                 text += " |";
@@ -465,8 +466,7 @@ bool TableRenderer::eventFilter(QObject *obj, QEvent *event)
 void TableRenderer::onHeaderClicked(int column)
 {
     if(m_pagedMode) {
-        // Header clicks on paged sources are deliberate no-ops; server-side
-        // sorting is not implemented yet.
+        // The viewer owns server-side sorting; the proxy must keep page order.
         return;
     }
 
@@ -504,7 +504,7 @@ void TableRenderer::resizeColumnsToFit()
 void TableRenderer::filterBySelection()
 {
     auto indices = m_view->selectionModel()->selectedIndexes();
-    if(indices.isEmpty())
+    if(indices.isEmpty() || isSelectedCellClamped())
         return;
 
     emit requestFilter(indices.first().data(Qt::DisplayRole).toString());

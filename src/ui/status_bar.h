@@ -30,6 +30,10 @@ public:
     void restoreInfo();
     void updateTheme(bool dark, qreal dpr);
     void clear();
+    void setSorting(bool sorting);
+
+signals:
+    void cancelSortRequested();
 
 private:
     void repaintInfoIcon();
@@ -38,6 +42,7 @@ private:
 
     QLabel *m_valueLabel = nullptr;
     QLabel *m_info = nullptr;
+    QLabel *m_sorting = nullptr;
     QProgressBar *m_progress = nullptr;
 
     bool m_isDarkMode = false;

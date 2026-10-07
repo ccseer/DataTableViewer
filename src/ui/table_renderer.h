@@ -95,6 +95,7 @@ private:
         int modelRow = 0;
         int modelCol = 0;
         QString displayedText;
+        QString headerText;
         bool clamped = false;
     };
     struct PendingCopy {

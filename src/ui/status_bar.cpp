@@ -38,6 +38,17 @@ StatusBar::StatusBar(QWidget *parent) : QWidget(parent)
     m_valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(m_valueLabel, 1);
 
+    m_valueLabel->setTextFormat(Qt::PlainText);
+    m_sorting = new QLabel(this);
+    m_sorting->setTextFormat(Qt::RichText);
+    m_sorting->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+    m_sorting->setText(tr("Sorting...").toHtmlEscaped() + " <a href=\"cancel\">" +
+                       tr("Cancel").toHtmlEscaped() + "</a>");
+    layout->addWidget(m_sorting);
+    connect(m_sorting, &QLabel::linkActivated, this, [this](const QString &link) {
+        if(link == "cancel") emit cancelSortRequested();
+    });
+
     m_info = new QLabel(this);
     m_info->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     m_info->setCursor(Qt::ArrowCursor);
@@ -284,8 +295,14 @@ void StatusBar::updateTheme(bool dark, qreal dpr)
         repaintInfoIcon();
 }
 
+void StatusBar::setSorting(bool sorting)
+{
+    m_sorting->setVisible(sorting);
+}
+
 void StatusBar::clear()
 {
+    setSorting(false);
     m_hasLoadInfo = false;
     m_filterActive = false;
     m_info->setPixmap(QPixmap());

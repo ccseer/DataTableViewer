@@ -59,6 +59,7 @@ set(WORKER_SOURCES
 )
 
 set(UI_SOURCES
+    src/ui/cell_text.h
     src/ui/page_bar.h
     src/ui/page_bar.cpp
     src/ui/search_bar.h

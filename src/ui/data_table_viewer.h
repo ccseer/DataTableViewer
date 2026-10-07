@@ -61,12 +61,17 @@ private slots:
     void doLoadFile(const QString &path, const QString &tableName);
     void loadSelectedTable(const QString &path, const QString &tableName);
 
+    void cancelSort();
+    void onSortClicked(int column);
     void onFirstPageClicked();
     void onPrevPageClicked();
     void onNextPageClicked();
     void onLastPageClicked();
 
 private:
+    void failSortRecovery(const QString &error);
+    void recoverSort();
+    void finishSortRecovery();
     void init();
     void cancelPending();
     void reapplyStyles();
@@ -93,6 +98,16 @@ private:
     qreal m_dpr = 1.0;
 
     // Paged SQLite browsing state
+    struct SortState { int column; bool ascending; };
+    std::optional<SortState> m_committedSort;
+    std::optional<SortState> m_pendingSort;
+    bool m_canSort = false;
+    bool m_sourceOrderValid = true;
+    bool m_sorting = false;
+    bool m_recoveringSort = false;
+    bool m_sortTotalAuthoritative = false;
+    QString m_sourcePath;
+    QString m_sourceTable;
     bool m_isPaged = false;
     bool m_pageFetchInFlight = false;
     bool m_countRequested = false;

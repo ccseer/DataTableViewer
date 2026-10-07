@@ -18,6 +18,27 @@ private slots:
         QCOMPARE(index.data(Qt::ToolTipRole).toString(),
                  QString("line one\nline two\r\nline three"));
     }
+
+    void loadAllLoadsAllRowsImmediately()
+    {
+        auto data = std::make_shared<dtv::core::TableData>();
+        data->columns.push_back({"val", dtv::core::ColumnMeta::Type::Integer});
+        for(int i = 0; i < 1200; ++i) {
+            data->rows.push_back({std::to_string(i)});
+        }
+
+        dtv::ui::TableModel modelDefault;
+        modelDefault.setTableData(data, false);
+        // Default batching loads 500 rows
+        QCOMPARE(modelDefault.rowCount(), 500);
+        QVERIFY(modelDefault.canFetchMore({}));
+
+        dtv::ui::TableModel modelLoadAll;
+        modelLoadAll.setTableData(data, true);
+        // loadAll loads all 1200 rows immediately
+        QCOMPARE(modelLoadAll.rowCount(), 1200);
+        QVERIFY(!modelLoadAll.canFetchMore({}));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestTableModel)

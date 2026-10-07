@@ -1,11 +1,15 @@
 #include "data_table_viewer.h"
 #include "search_bar.h"
 #include "status_bar.h"
+#include "page_bar.h"
 #include "table_renderer.h"
 #include "table_picker.h"
 #include "style_assets.h"
 #include "core/parser_registry.h"
+#include "core/pager_state.h"
 #include "workers/table_worker.h"
+#include "workers/source_worker.h"
+#include "workers/count_worker.h"
 #include "workers/background_thread.h"
 #include "seer/viewerhelper.h"
 
@@ -17,6 +21,7 @@
 #include <QFileInfo>
 #include <QPointer>
 #include <QSettings>
+#include <QElapsedTimer>
 #include <QDebug>
 #include <QCoreApplication>
 
@@ -38,7 +43,6 @@ DataTableViewer::DataTableViewer(QWidget *parent) : ViewerBase(parent)
 DataTableViewer::~DataTableViewer()
 {
     cancelPending();
-
     qprintt << "~" << this;
 }
 
@@ -46,11 +50,14 @@ void DataTableViewer::init()
 {
     qRegisterMetaType<std::shared_ptr<const dtv::core::TableParseResult>>(
         "std::shared_ptr<const dtv::core::TableParseResult>");
+    dtv::workers::registerWorkerMetatypes();
     dtv::core::ParserRegistry::instance().registerBuiltinParsers();
 
-    // 1. Create UI components first
+    // 1. Create UI components
     m_search = new dtv::ui::SearchBar(this);
     m_status = new dtv::ui::StatusBar(this);
+    m_pageBar = new dtv::ui::PageBar(this);
+    m_pageBar->hide();
     m_renderer = new dtv::ui::TableRenderer(this);
     m_picker = new dtv::ui::TablePicker(this);
 
@@ -75,14 +82,21 @@ void DataTableViewer::init()
     m_backBtn->setToolTip("Back to table list");
 
     connect(m_backBtn, &QPushButton::clicked, this, [this] {
+        cancelPending();
+        m_renderer->clear();
+        m_renderer->setStateKey({});
+        m_renderer->setPagedMode(false);
+        m_search->setPagedMode(false);
+        m_status->setPagedMode(false);
+        m_pageBar->hide();
         m_stack->setCurrentWidget(m_picker);
         m_backBtn->hide();
         m_search->hide();
-        m_status->restoreInfo();
+        m_status->clear();
     });
 
     connect(m_picker, &dtv::ui::TablePicker::tableSelected, this, [this](const QString &name) {
-        doLoadFile(m_currentPath, name);
+        loadSelectedTable(m_currentPath, name);
     });
 
     connect(m_search, &dtv::ui::SearchBar::filterChanged, this, [this](const QString &text) {
@@ -106,6 +120,37 @@ void DataTableViewer::init()
         m_status->setFilterMatchCount(matches, !m_search->text().isEmpty());
     });
 
+    // Pager navigation button connections
+    connect(m_pageBar, &dtv::ui::PageBar::firstClicked, this, &DataTableViewer::onFirstPageClicked);
+    connect(m_pageBar, &dtv::ui::PageBar::prevClicked, this, &DataTableViewer::onPrevPageClicked);
+    connect(m_pageBar, &dtv::ui::PageBar::nextClicked, this, &DataTableViewer::onNextPageClicked);
+    connect(m_pageBar, &dtv::ui::PageBar::lastClicked, this, &DataTableViewer::onLastPageClicked);
+
+    // Keyboard navigation connections (PageUp/PageDown on table view)
+    connect(m_renderer, &dtv::ui::TableRenderer::pageUpRequested, this, &DataTableViewer::onPrevPageClicked);
+    connect(m_renderer, &dtv::ui::TableRenderer::pageDownRequested, this, &DataTableViewer::onNextPageClicked);
+
+    connect(m_renderer, &dtv::ui::TableRenderer::copyRefetchIncomplete, this,
+            [this](int failedRows) {
+                m_status->setValueText(tr("Copy incomplete: %1 truncated row(s) could not be refreshed")
+                                           .arg(failedRows));
+            });
+
+    connect(m_renderer, &dtv::ui::TableRenderer::refetchRowsRequested, this,
+            [this](uint64_t copyRequestId, bool isMarkdown, const auto &rowKeys) {
+                Q_UNUSED(isMarkdown);
+                if(m_sourceWorker && m_isPaged) {
+                    QMetaObject::invokeMethod(
+                        m_sourceWorker, "refetchRows", Qt::QueuedConnection,
+                        Q_ARG(uint64_t, m_viewGen->load()),
+                        Q_ARG(uint64_t, copyRequestId),
+                        Q_ARG(RefetchRowKeysList, rowKeys));
+                } else {
+                    // Fallback: no worker available or not paged, complete copy with truncated cells
+                    m_renderer->onRefetchRowsCompleted(copyRequestId, {});
+                }
+            });
+
     auto *findShortcut = new QShortcut(QKeySequence::Find, this);
     findShortcut->setContext(Qt::WidgetWithChildrenShortcut);
     connect(findShortcut, &QShortcut::activated, this, [this] {
@@ -122,6 +167,7 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
     lay_content->setSpacing(qRound(6 * m_dpr));
     lay_content->addWidget(m_search);
     lay_content->addLayout(m_stack, 1);
+    lay_content->addWidget(m_pageBar);
     lay_content->addWidget(m_status);
 
     if(auto *slay = qobject_cast<QHBoxLayout *>(m_search->layout())) {
@@ -144,6 +190,8 @@ void DataTableViewer::updateDPR(qreal r)
         m_search->updateDPR(r);
     if(m_status)
         m_status->updateTheme(m_isDarkMode, r);
+    if(m_pageBar)
+        m_pageBar->updateTheme(m_isDarkMode, r);
     if(m_picker)
         m_picker->updateTheme(m_isDarkMode, r);
 
@@ -159,6 +207,7 @@ void DataTableViewer::updateTheme(int theme)
     m_isDarkMode = (theme == 1);
     m_search->updateTheme(m_isDarkMode);
     m_status->updateTheme(m_isDarkMode, m_dpr);
+    m_pageBar->updateTheme(m_isDarkMode, m_dpr);
     m_picker->updateTheme(m_isDarkMode, m_dpr);
     reapplyStyles();
 }
@@ -193,8 +242,100 @@ void DataTableViewer::reapplyStyles()
 
 void DataTableViewer::cancelPending()
 {
+    saveCurrentHeaderState();
+
     emit cancelRequested();
     m_generation++;
+    if(m_viewGen) {
+        m_viewGen->fetch_add(1);
+    }
+    if(m_opGen) {
+        m_opGen->fetch_add(1);
+    }
+
+    if(m_sourceWorker) {
+        m_sourceWorker->interrupt();
+        QMetaObject::invokeMethod(m_sourceWorker, "shutdown", Qt::QueuedConnection);
+        m_sourceWorker = nullptr;
+        m_sourceThread = nullptr;
+    }
+
+    if(m_countWorker) {
+        m_countWorker->interrupt();
+        QMetaObject::invokeMethod(m_countWorker, "shutdown", Qt::QueuedConnection);
+        m_countWorker = nullptr;
+        m_countThread = nullptr;
+    }
+
+    m_isPaged = false;
+    m_pageFetchInFlight = false;
+    m_countRequested = false;
+    m_countFailed = false;
+    m_pendingPage = 1;
+    m_pendingArrivedFromPrev = false;
+}
+
+QSettings &DataTableViewer::ini()
+{
+    if(!m_ini) {
+        m_ini = std::make_unique<QSettings>(getIniPath(), QSettings::IniFormat);
+    }
+    return *m_ini;
+}
+
+void DataTableViewer::saveCurrentHeaderState()
+{
+    if(!m_renderer) {
+        return;
+    }
+    m_renderer->saveHeaderState(ini());
+    ini().sync();
+    // A plugin installed under a read-only directory loses the header state
+    // silently unless the failure is surfaced once.
+    if(!m_iniWriteWarned && ini().status() != QSettings::NoError) {
+        m_iniWriteWarned = true;
+        qprintt << "failed to write header state to" << getIniPath();
+    }
+}
+
+QString DataTableViewer::getIniPath() const
+{
+    if(m_iniPathOverride.has_value()) {
+        return *m_iniPathOverride;
+    }
+    if(m_iniPath.isEmpty()) {
+        const QString filename = name() + ".ini";
+        QString dir = seer::getDLLPath();
+        if(dir.isEmpty()) {
+            dir = QCoreApplication::applicationDirPath();
+        }
+        dir.replace("\\", "/");
+        if(!dir.endsWith("/")) {
+            dir.append("/");
+        }
+        m_iniPath = dir + filename;
+    }
+    return m_iniPath;
+}
+
+int DataTableViewer::readConfiguredPageSize() const
+{
+    if(m_pageSizeOverride.has_value()) {
+        return dtv::core::normalizePageRows(*m_pageSizeOverride);
+    }
+    QSettings &settings = const_cast<DataTableViewer*>(this)->ini();
+    QVariant val = settings.value("page_rows");
+    if(!val.isValid() || val.isNull()) {
+        val = settings.value("DataTableViewer/page_rows");
+    }
+    if(val.isValid() && !val.isNull()) {
+        bool ok = false;
+        int rows = val.toInt(&ok);
+        if(ok) {
+            return dtv::core::normalizePageRows(rows);
+        }
+    }
+    return 500;
 }
 
 void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
@@ -203,8 +344,10 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
 
     m_renderer->clear();
     m_search->clear();
+    m_search->setPagedMode(false);
     m_status->showLoading();
     m_search->setEnabled(false);
+    m_pageBar->hide();
 
     QFileInfo info(path);
     qprintt << "doLoadFile:" << path << "table:" << tableName << "suffix:" << info.suffix();
@@ -212,6 +355,12 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     if(isSqliteExtension(info.suffix()) && !m_sqliteAvailable) {
         m_status->setValueText("Error: SQLite driver not loaded.");
         emit sigCommand(VCT_StateChange, VCV_Error);
+        return;
+    }
+
+    // Direct table request on SQLite goes to paged loader
+    if(isSqliteExtension(info.suffix()) && !tableName.isEmpty()) {
+        loadSelectedTable(path, tableName);
         return;
     }
 
@@ -249,6 +398,246 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     thread->start();
 }
 
+void DataTableViewer::loadSelectedTable(const QString &path, const QString &tableName)
+{
+    cancelPending();
+
+    m_isPaged = true;
+    m_countRequested = false;
+    m_pendingPage = 1;
+    m_pendingArrivedFromPrev = false;
+    m_renderer->clear();
+    m_search->clear();
+    m_status->showLoading();
+    m_search->setEnabled(false);
+    m_pageBar->hide();
+
+    QFileInfo info(path);
+    m_fileBytes = info.size();
+
+    m_openElapsedMs = 0;
+    m_pageTimer.start();
+
+    m_viewGen = std::make_shared<std::atomic<uint64_t>>(m_generation);
+    m_opGen = std::make_shared<std::atomic<uint64_t>>(1);
+
+    m_sourceThread = new BackgroundThread;
+    m_countThread = new BackgroundThread;
+    m_sourceWorker = new dtv::workers::SourceWorker(m_viewGen, m_opGen);
+    m_countWorker = new dtv::workers::CountWorker(m_viewGen);
+
+    m_sourceWorker->moveToThread(m_sourceThread);
+    m_countWorker->moveToThread(m_countThread);
+
+    connect(m_sourceWorker, &QObject::destroyed, m_sourceThread, &QObject::deleteLater);
+    connect(m_countWorker, &QObject::destroyed, m_countThread, &QObject::deleteLater);
+
+    connect(m_sourceWorker, &dtv::workers::SourceWorker::openCompleted, this,
+            [this](uint64_t viewGen, uint64_t opGen, bool ok,
+                   const QString &error,
+                   const std::vector<dtv::core::ColumnMeta> &columns,
+                   bool canSort) {
+                if(viewGen != m_generation || !m_isPaged)
+                    return;
+
+                if(!ok) {
+                    m_status->setValueText("Error: " + error);
+                    emit sigCommand(VCT_StateChange, VCV_Error);
+                    return;
+                }
+
+                m_colCount = static_cast<int>(columns.size());
+                int pageSize = readConfiguredPageSize();
+                m_pagerState = dtv::core::PagerState{};
+                m_pagerState.pageSize = pageSize;
+                m_pagerState.page = 1;
+                m_pendingPage = 1;
+                m_pendingArrivedFromPrev = false;
+                m_pageFetchInFlight = true;
+                m_pageBar->setBusy(true);
+
+                QMetaObject::invokeMethod(m_sourceWorker, "first", Qt::QueuedConnection,
+                                          Q_ARG(uint64_t, viewGen), Q_ARG(uint64_t, opGen),
+                                          Q_ARG(int, pageSize));
+            });
+
+    connect(m_sourceWorker, &dtv::workers::SourceWorker::pageReady, this,
+            [this, path, tableName](uint64_t viewGen, uint64_t opGen,
+                                    std::shared_ptr<const dtv::core::PageResult> result) {
+                if(viewGen != m_generation || (m_opGen && opGen != m_opGen->load()) || !m_isPaged)
+                    return;
+
+                m_pageFetchInFlight = false;
+                m_pageBar->setBusy(false);
+
+                if(!result->ok) {
+                    m_status->setValueText("Error: " + QString::fromStdString(result->error));
+                    m_pendingPage = m_pagerState.page;
+                    emit sigCommand(VCT_StateChange, VCV_Error);
+                    return;
+                }
+
+                const bool isInitialLoad = (m_stack->currentWidget() != m_renderer);
+
+                if(!isInitialLoad && result->data->rows.empty()) {
+                    // The requested page vanished because data was modified or
+                    // deleted externally. Keep the committed page, its rows and
+                    // its token untouched so navigation can continue, then let a
+                    // fresh COUNT rebuild the pager bounds.
+                    m_pagerState.hasMore = false;
+                    m_pageBar->setPagerState(m_pagerState);
+                    m_status->setValueText(tr("No more rows exist (data modified externally)"));
+
+                    if(!m_countFailed && m_countWorker) {
+                        m_countRequested = true;
+                        QMetaObject::invokeMethod(m_countWorker, "count", Qt::QueuedConnection,
+                                                  Q_ARG(uint64_t, viewGen),
+                                                  Q_ARG(QString, path),
+                                                  Q_ARG(QString, tableName));
+                    }
+                    return;
+                }
+
+                // Wall clock for the page that just arrived, restarted per navigation request.
+                m_openElapsedMs = m_pageTimer.elapsed();
+                m_pagerState.page = m_pendingPage;
+                m_pagerState.arrivedFromPrev = m_pendingArrivedFromPrev;
+                m_pagerState.hasMore = result->hasMore;
+                m_currentToken = result->token;
+
+                m_renderer->setPageData(result->data, result->keys, result->clamped);
+
+                if(isInitialLoad) {
+                    m_renderer->setStateKey(makeKey("SQLite", tableName));
+                    m_renderer->restoreHeaderState(ini());
+                    m_stack->setCurrentWidget(m_renderer);
+                    m_search->show();
+                    m_search->setEnabled(true);
+                    m_backBtn->show();
+                    m_renderer->setPagedMode(true);
+                    m_search->setPagedMode(true);
+                    m_status->setPagedMode(true);
+                }
+
+                int64_t rowCount = static_cast<int64_t>(result->data->rows.size());
+                int64_t firstRow = rowCount > 0
+                                       ? dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize)
+                                       : 0;
+                int64_t lastRow = rowCount > 0 ? firstRow + rowCount - 1 : 0;
+
+                m_status->setPagedLoadInfo(firstRow, lastRow, m_pagerState.total, m_colCount,
+                                          m_fileBytes, m_openElapsedMs, "SQLite", "SQLite 3");
+
+                m_pageBar->setPagerState(m_pagerState);
+
+                emit sigCommand(VCT_StateChange, VCV_Loaded);
+
+                // Start async COUNT only once per table load
+                if(!m_countRequested && !m_countFailed && !m_pagerState.total.has_value() && m_countWorker) {
+                    m_countRequested = true;
+                    QMetaObject::invokeMethod(m_countWorker, "count", Qt::QueuedConnection,
+                                              Q_ARG(uint64_t, viewGen),
+                                              Q_ARG(QString, path),
+                                              Q_ARG(QString, tableName));
+                }
+            });
+
+    connect(m_sourceWorker, &dtv::workers::SourceWorker::refetchRowsCompleted, this,
+            [this](uint64_t viewGen, uint64_t copyRequestId, const auto &results) {
+                if(viewGen != m_generation || !m_isPaged)
+                    return;
+                m_renderer->onRefetchRowsCompleted(copyRequestId, results);
+            });
+
+    connect(m_countWorker, &dtv::workers::CountWorker::countCompleted, this,
+            [this](uint64_t viewGen, bool ok, const QString &error, qint64 total) {
+                if(viewGen != m_generation || !m_isPaged)
+                    return;
+
+                ++m_countCompletedCount;
+
+                if(ok) {
+                    m_pagerState.total = total;
+                    m_pageBar->setPagerState(m_pagerState);
+                    m_status->updatePagedTotal(total);
+                } else {
+                    m_countFailed = true;
+                    m_status->setWarning(tr("Row count failed: %1").arg(error));
+                }
+            });
+
+    m_sourceThread->start();
+    m_countThread->start();
+
+    QMetaObject::invokeMethod(m_sourceWorker, "open", Qt::QueuedConnection,
+                              Q_ARG(uint64_t, m_generation), Q_ARG(uint64_t, 1ULL),
+                              Q_ARG(QString, path), Q_ARG(QString, tableName));
+}
+
+void DataTableViewer::navigatePage(int64_t targetPage, bool arrivedFromPrev,
+                                    std::function<void(uint64_t viewGen, uint64_t opGen)> fetchFunc)
+{
+    if(!m_isPaged || m_pageFetchInFlight || !m_sourceWorker)
+        return;
+
+    m_pageFetchInFlight = true;
+    m_pageBar->setBusy(true);
+    m_pendingPage = targetPage;
+    m_pendingArrivedFromPrev = arrivedFromPrev;
+
+    m_pageTimer.restart();
+
+    uint64_t opGen = m_opGen->fetch_add(1) + 1;
+    fetchFunc(m_viewGen->load(), opGen);
+}
+
+void DataTableViewer::onFirstPageClicked()
+{
+    if(!m_pagerState.canFirst())
+        return;
+    navigatePage(1, false, [this](uint64_t vGen, uint64_t oGen) {
+        QMetaObject::invokeMethod(m_sourceWorker, "first", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, vGen), Q_ARG(uint64_t, oGen),
+                                  Q_ARG(int, m_pagerState.pageSize));
+    });
+}
+
+void DataTableViewer::onPrevPageClicked()
+{
+    if(!m_pagerState.canPrev())
+        return;
+    navigatePage(m_pagerState.page - 1, true, [this](uint64_t vGen, uint64_t oGen) {
+        QMetaObject::invokeMethod(m_sourceWorker, "prev", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, vGen), Q_ARG(uint64_t, oGen),
+                                  Q_ARG(dtv::core::PageToken, m_currentToken),
+                                  Q_ARG(int, m_pagerState.pageSize));
+    });
+}
+
+void DataTableViewer::onNextPageClicked()
+{
+    if(!m_pagerState.canNext())
+        return;
+    navigatePage(m_pagerState.page + 1, false, [this](uint64_t vGen, uint64_t oGen) {
+        QMetaObject::invokeMethod(m_sourceWorker, "next", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, vGen), Q_ARG(uint64_t, oGen),
+                                  Q_ARG(dtv::core::PageToken, m_currentToken),
+                                  Q_ARG(int, m_pagerState.pageSize));
+    });
+}
+
+void DataTableViewer::onLastPageClicked()
+{
+    if(!m_pagerState.canLast() || !m_pagerState.total.has_value())
+        return;
+    navigatePage(m_pagerState.pages(), false, [this](uint64_t vGen, uint64_t oGen) {
+        QMetaObject::invokeMethod(m_sourceWorker, "last", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, vGen), Q_ARG(uint64_t, oGen),
+                                  Q_ARG(int, m_pagerState.pageSize),
+                                  Q_ARG(qint64, *m_pagerState.total));
+    });
+}
+
 void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TableParseResult> result,
                                        const QString &tableName, int generation)
 {
@@ -271,6 +660,7 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
         m_stack->setCurrentWidget(m_picker);
         m_backBtn->hide();
         m_search->hide();
+        m_pageBar->hide();
         m_status->restoreInfo();
         emit sigCommand(VCT_StateChange, VCV_Loaded);
         return;
@@ -282,11 +672,11 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
         QString format = QString::fromStdString(result->format_name);
         m_renderer->setStateKey(makeKey(format, tableName));
 
-        QSettings settings(QSettings::IniFormat, QSettings::UserScope, "ccseer", "Seer");
         m_stack->setCurrentWidget(m_renderer);
         m_search->show();
+        m_pageBar->hide();
         m_renderer->setData(result->data);
-        m_renderer->restoreHeaderState(settings);
+        m_renderer->restoreHeaderState(ini());
         m_status->setLoadInfo(static_cast<int>(result->data->rows.size()),
                               static_cast<int>(result->data->columns.size()), result->file_bytes,
                               result->elapsed_ms, format,

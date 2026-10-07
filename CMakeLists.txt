@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -58,6 +59,8 @@ set(WORKER_SOURCES
 )
 
 set(UI_SOURCES
+    src/ui/page_bar.h
+    src/ui/page_bar.cpp
     src/ui/search_bar.h
     src/ui/search_bar.cpp
     src/ui/status_bar.h
@@ -107,7 +110,8 @@ target_include_directories(datatableviewer_test PRIVATE src/)
 target_link_libraries(datatableviewer_test PRIVATE
     datatableviewer SeerSdk::SeerSdk Qt6::Core Qt6::Gui Qt6::Widgets)
 set_target_properties(datatableviewer_test PROPERTIES
-    VS_STARTUP_PROJECT ON)
+    VS_STARTUP_PROJECT ON
+    FOLDER "tests")
 
 # ---- Tests ----
 option(BUILD_TESTS "Build parser unit tests" ON)
@@ -129,6 +133,7 @@ if(BUILD_TESTS)
         )
         target_compile_definitions(${NAME} PRIVATE
             FIXTURES_DIR="${FIXTURES_DIR}")
+        set_target_properties(${NAME} PROPERTIES FOLDER "tests")
         add_test(NAME ${NAME} COMMAND ${NAME})
         set(TABLE_TEST_TARGETS ${TABLE_TEST_TARGETS} ${NAME} PARENT_SCOPE)
     endfunction()
@@ -141,6 +146,7 @@ if(BUILD_TESTS)
         src/parsers/sqlite_table_source.cpp src/parsers/sqlite_common.cpp src/core/table_source.cpp)
     target_include_directories(test_sqlite_table_source PRIVATE src/)
     target_link_libraries(test_sqlite_table_source PRIVATE Qt6::Test unofficial::sqlite3::sqlite3)
+    set_target_properties(test_sqlite_table_source PROPERTIES FOLDER "tests")
     add_test(NAME test_sqlite_table_source COMMAND test_sqlite_table_source)
     list(APPEND TABLE_TEST_TARGETS test_sqlite_table_source)
 
@@ -151,8 +157,20 @@ if(BUILD_TESTS)
         src/ui/table_model.h
         src/ui/table_model.cpp
     )
+    set_target_properties(test_table_model PROPERTIES FOLDER "tests")
     add_test(NAME test_table_model COMMAND test_table_model)
     list(APPEND TABLE_TEST_TARGETS test_table_model)
+
+    add_executable(test_page_bar tests/test_page_bar.cpp
+        src/ui/page_bar.h
+        src/ui/page_bar.cpp
+        src/ui/style_assets.h
+    )
+    target_include_directories(test_page_bar PRIVATE src/)
+    target_link_libraries(test_page_bar PRIVATE Qt6::Test Qt6::Widgets Qt6::Svg)
+    set_target_properties(test_page_bar PROPERTIES FOLDER "tests")
+    add_test(NAME test_page_bar COMMAND test_page_bar)
+    list(APPEND TABLE_TEST_TARGETS test_page_bar)
 
     add_executable(test_source_worker tests/test_source_worker.cpp
         ${CORE_SOURCES}
@@ -161,8 +179,19 @@ if(BUILD_TESTS)
     )
     target_include_directories(test_source_worker PRIVATE src/)
     target_link_libraries(test_source_worker PRIVATE Qt6::Test Qt6::Core unofficial::sqlite3::sqlite3)
+    set_target_properties(test_source_worker PROPERTIES FOLDER "tests")
     add_test(NAME test_source_worker COMMAND test_source_worker)
     list(APPEND TABLE_TEST_TARGETS test_source_worker)
+
+    add_executable(test_viewer_paging tests/test_viewer_paging.cpp
+        ${seersdk_SOURCE_DIR}/seer/viewerbase.h
+    )
+    target_include_directories(test_viewer_paging PRIVATE src/ ${seersdk_SOURCE_DIR})
+    target_link_libraries(test_viewer_paging PRIVATE datatableviewer SeerSdk::SeerSdk Qt6::Test Qt6::Widgets Qt6::Svg unofficial::sqlite3::sqlite3)
+    target_compile_definitions(test_viewer_paging PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
+    set_target_properties(test_viewer_paging PROPERTIES FOLDER "tests")
+    add_test(NAME test_viewer_paging COMMAND test_viewer_paging)
+    list(APPEND TABLE_TEST_TARGETS test_viewer_paging)
 
     add_custom_target(run_all_tests
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
@@ -173,4 +202,5 @@ if(BUILD_TESTS)
         COMMENT "Building and running all table tests"
         USES_TERMINAL
     )
+    set_target_properties(run_all_tests PROPERTIES FOLDER "tests")
 endif()

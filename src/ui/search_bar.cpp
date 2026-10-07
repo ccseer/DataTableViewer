@@ -76,6 +76,13 @@ void SearchBar::selectAll()
     m_edit->selectAll();
 }
 
+void SearchBar::setPagedMode(bool paged)
+{
+    if(m_edit) {
+        m_edit->setPlaceholderText(paged ? tr("Filter current page") : tr("Filter current view..."));
+    }
+}
+
 void SearchBar::updateDPR(qreal r)
 {
     m_dpr = r;

@@ -47,14 +47,17 @@ QString TableModel::singleLineDisplayText(const std::string &cell)
     return text;
 }
 
-void TableModel::setTableData(std::shared_ptr<const core::TableData> data)
+void TableModel::setTableData(std::shared_ptr<const core::TableData> data, bool loadAll)
 {
     beginResetModel();
     m_data = data;
     m_loadedRows = 0;
+    if(m_data && loadAll) {
+        m_loadedRows = static_cast<int>(m_data->rows.size());
+    }
     endResetModel();
 
-    if(m_data && canFetchMore({})) {
+    if(m_data && !loadAll && canFetchMore({})) {
         fetchMore({});
     }
 }

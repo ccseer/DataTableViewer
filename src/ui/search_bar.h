@@ -20,6 +20,7 @@ public:
     void selectAll();
     void updateDPR(qreal r);
     void updateTheme(bool dark);
+    void setPagedMode(bool paged);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;

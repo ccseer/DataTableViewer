@@ -12,8 +12,10 @@ void registerWorkerMetatypes() {
         qRegisterMetaType<std::vector<dtv::core::ColumnMeta>>(
             "std::vector<dtv::core::ColumnMeta>");
         qRegisterMetaType<dtv::core::PageToken>("dtv::core::PageToken");
-        qRegisterMetaType<dtv::core::RefetchKey>("dtv::core::RefetchKey");
-        qRegisterMetaType<dtv::core::RefetchResult>("dtv::core::RefetchResult");
+        qRegisterMetaType<std::vector<std::pair<int, dtv::core::RefetchKey>>>(
+            "std::vector<std::pair<int, dtv::core::RefetchKey>>");
+        qRegisterMetaType<std::vector<std::pair<int, dtv::core::RefetchResult>>>(
+            "std::vector<std::pair<int, dtv::core::RefetchResult>>");
         return true;
     }();
     Q_UNUSED(registered);
@@ -234,17 +236,28 @@ void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool as
     emit sortCompleted(viewGen, opGen, ok, err, total);
 }
 
-void SourceWorker::refetch(uint64_t viewGen, uint64_t copyRequestId, const dtv::core::RefetchKey &key) {
+void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
+                               const std::vector<std::pair<int, dtv::core::RefetchKey>> &rowKeys) {
     if (isViewStale(viewGen) || !m_source) {
         return;
     }
     uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
     applyCancelCheck(viewGen, std::nullopt, startSeq);
 
-    auto res = executeWithInterruptRetry(
-        [&]() { return m_source->refetch(key); },
-        [](const core::RefetchResult &r) { return !r.ok && (r.error == "interrupted" || r.error == "Cancelled"); },
-        [&]() { return isViewStale(viewGen); });
+    std::vector<std::pair<int, dtv::core::RefetchResult>> results;
+    results.reserve(rowKeys.size());
+
+    for (const auto &item : rowKeys) {
+        if (isViewStale(viewGen)) {
+            return;
+        }
+        auto res = executeWithInterruptRetry(
+            [&]() { return m_source->refetch(item.second); },
+            [](const core::RefetchResult &r) { return !r.ok && (r.error == "interrupted" || r.error == "Cancelled"); },
+            [&]() { return isViewStale(viewGen); });
+
+        results.emplace_back(item.first, std::move(res));
+    }
 
     if (m_finishHook) {
         m_finishHook();
@@ -254,7 +267,7 @@ void SourceWorker::refetch(uint64_t viewGen, uint64_t copyRequestId, const dtv::
         return;
     }
 
-    emit refetchCompleted(viewGen, copyRequestId, res);
+    emit refetchRowsCompleted(viewGen, copyRequestId, results);
 }
 
 void SourceWorker::shutdown() {

@@ -5,6 +5,9 @@
 #include <optional>
 #include <limits>
 namespace dtv::core {
+inline int64_t firstRowOnPage(int64_t page, int64_t pageSize) {
+    return (page - 1) * pageSize + 1;
+}
 inline int normalizePageRows(std::optional<int64_t> value = std::nullopt) {
     return value ? static_cast<int>(std::clamp<int64_t>(*value, 100, 3000)) : 500;
 }

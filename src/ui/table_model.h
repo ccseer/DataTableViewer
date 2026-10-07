@@ -15,7 +15,7 @@ public:
 
     explicit TableModel(QObject *parent = nullptr);
 
-    void setTableData(std::shared_ptr<const core::TableData> data);
+    void setTableData(std::shared_ptr<const core::TableData> data, bool loadAll = false);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -26,9 +26,9 @@ public:
     bool canFetchMore(const QModelIndex &parent) const override;
     void fetchMore(const QModelIndex &parent) override;
 
-private:
     static QString singleLineDisplayText(const std::string &cell);
 
+private:
     std::shared_ptr<const core::TableData> m_data;
     int m_loadedRows = 0;
 };

@@ -7,16 +7,21 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "core/table_source.h"
 #include "parsers/sqlite_common.h"
 
+// Q_ARG and Q_DECLARE_METATYPE are macros: types with top-level commas
+// (vector<pair<...>>) must go through an alias or the macro would split the
+// template arguments.
+using RefetchRowKeysList = std::vector<std::pair<int, dtv::core::RefetchKey>>;
+using RefetchRowResultsList = std::vector<std::pair<int, dtv::core::RefetchResult>>;
+
 Q_DECLARE_METATYPE(std::shared_ptr<const dtv::core::PageResult>)
 Q_DECLARE_METATYPE(std::vector<dtv::core::ColumnMeta>)
 Q_DECLARE_METATYPE(dtv::core::PageToken)
-Q_DECLARE_METATYPE(dtv::core::RefetchKey)
-Q_DECLARE_METATYPE(dtv::core::RefetchResult)
 
 namespace dtv::workers {
 
@@ -49,7 +54,8 @@ public slots:
     void prev(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token, int pageSize);
     void last(uint64_t viewGen, uint64_t opGen, int pageSize, qint64 knownTotal);
     void sort(uint64_t viewGen, uint64_t opGen, size_t column, bool ascending);
-    void refetch(uint64_t viewGen, uint64_t copyRequestId, const dtv::core::RefetchKey &key);
+    void refetchRows(uint64_t viewGen, uint64_t copyRequestId,
+                     const std::vector<std::pair<int, dtv::core::RefetchKey>> &rowKeys);
     void shutdown();
 
 signals:
@@ -59,8 +65,8 @@ signals:
                    std::shared_ptr<const dtv::core::PageResult> result);
     void sortCompleted(uint64_t viewGen, uint64_t opGen, bool ok, const QString &error,
                        qint64 total);
-    void refetchCompleted(uint64_t viewGen, uint64_t copyRequestId,
-                          const dtv::core::RefetchResult &result);
+    void refetchRowsCompleted(uint64_t viewGen, uint64_t copyRequestId,
+                              const std::vector<std::pair<int, dtv::core::RefetchResult>> &results);
 
 private:
     bool isStale(uint64_t viewGen, uint64_t opGen) const;

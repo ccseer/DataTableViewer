@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <optional>
 
 class QLabel;
 class QProgressBar;
@@ -16,20 +17,24 @@ public:
     void setLoadInfo(int rowCount, int colCount, qint64 fileBytes, qint64 elapsedMs,
                      const QString &formatName, const QString &libraryCredit,
                      bool truncated = false, size_t totalRows = 0);
+    void setPagedLoadInfo(int64_t firstRow, int64_t lastRow, std::optional<int64_t> total,
+                          int colCount, qint64 fileBytes, qint64 elapsedMs,
+                          const QString &formatName, const QString &libraryCredit);
+    void updatePagedTotal(int64_t total);
+    void setPagedMode(bool paged);
     void setWarning(const QString &warning);
     void setFilterMatchCount(int count, bool active);
     void setValueText(const QString &text);
     QString text() const;
     void showLoading();
-    void showFilterNoHits(const QString &text);
     void restoreInfo();
     void updateTheme(bool dark, qreal dpr);
     void clear();
 
 private:
     void repaintInfoIcon();
-
     void updateDisplay();
+    void rebuildPagedTexts();
 
     QLabel *m_valueLabel = nullptr;
     QLabel *m_info = nullptr;
@@ -42,6 +47,16 @@ private:
     int m_matchCount = 0;
     bool m_filterActive = false;
     bool m_hasLoadInfo = false;
+
+    bool m_pagedMode = false;
+    int64_t m_firstRow = 0;
+    int64_t m_lastRow = 0;
+    std::optional<int64_t> m_pagedTotal;
+    int m_colCount = 0;
+    qint64 m_fileBytes = 0;
+    qint64 m_elapsedMs = 0;
+    QString m_formatName;
+    QString m_libraryCredit;
 
     // Stored for theme repaint
     QString m_tooltipLines;

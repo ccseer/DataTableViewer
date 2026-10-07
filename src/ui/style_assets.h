@@ -59,6 +59,30 @@ inline constexpr auto g_svg_arrow_back = R"SVG(
   <path fill="currentColor" d="m313-440 224 224-57 56-320-320 320-320 57 56-224 224h487v80H313Z"/>
 </svg>)SVG";
 
+// Material Symbol: "First Page"
+inline constexpr auto g_svg_first_page = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+  <path fill="currentColor" d="M240-240v-480h80v480h-80Zm440 0L440-480l240-240 56 56-184 184 184 184-56 56Z"/>
+</svg>)SVG";
+
+// Material Symbol: "Navigate Before" (Previous)
+inline constexpr auto g_svg_chevron_left = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+  <path fill="currentColor" d="M560-240 320-480l240-240 56 56-184 184 184 184-56 56Z"/>
+</svg>)SVG";
+
+// Material Symbol: "Navigate Next" (Next)
+inline constexpr auto g_svg_chevron_right = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+  <path fill="currentColor" d="M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z"/>
+</svg>)SVG";
+
+// Material Symbol: "Last Page"
+inline constexpr auto g_svg_last_page = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+  <path fill="currentColor" d="m280-240-56-56 184-184-184-184 56-56 240 240-240 240Zm360 0v-480h80v480h-80Z"/>
+</svg>)SVG";
+
 // --- QSS (Qt Style Sheets) ---
 
 // Placeholder args: %1: SurfaceBG, %2: Border, %3: InputBG, %4: Text, %5:
@@ -83,6 +107,20 @@ inline constexpr auto g_qss_bottom_bar = R"(
         background-color: %1;
         border-top: 1px solid %2;
     }
+)";
+
+// Placeholder args: %1: SurfaceBG, %2: Border, %3: Radius, %4: Text
+inline constexpr auto g_qss_page_bar = R"(
+    QWidget#pageBar {
+        background-color: %1;
+        border-top: 1px solid %2;
+    }
+    QPushButton {
+        border: none; background: transparent; border-radius: %3px; padding: 2px;
+    }
+    QPushButton:hover { background-color: rgba(128, 128, 128, 40); }
+    QPushButton:pressed { background-color: rgba(128, 128, 128, 60); }
+    QLabel { color: %4; font-size: 12px; }
 )";
 
 inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor,

@@ -38,6 +38,8 @@ set(PARSER_SOURCES
     src/parsers/csv_parser.cpp
     src/parsers/sqlite_parser.h
     src/parsers/sqlite_parser.cpp
+    src/parsers/sqlite_common.h
+    src/parsers/sqlite_common.cpp
 )
 
 set(WORKER_SOURCES

@@ -1,9 +1,8 @@
 #include "sqlite_parser.h"
+#include "sqlite_common.h"
 #include "core/parser_registry.h"
 
 #include <sqlite3.h>
-#include <QFile>
-#include <QDebug>
 #include <limits>
 
 namespace dtv {
@@ -25,16 +24,6 @@ struct SqliteDeleter {
 using ScopedDb = std::unique_ptr<sqlite3, SqliteDeleter>;
 using ScopedStmt = std::unique_ptr<sqlite3_stmt, SqliteDeleter>;
 
-std::string escapeTableName(const std::string &name)
-{
-    std::string escaped = name;
-    size_t pos = 0;
-    while((pos = escaped.find('"', pos)) != std::string::npos) {
-        escaped.replace(pos, 1, "\"\"");
-        pos += 2;
-    }
-    return escaped;
-}
 } // namespace
 
 core::TableParseResult SqliteParser::parse(const core::ParseInput &in)
@@ -42,12 +31,11 @@ core::TableParseResult SqliteParser::parse(const core::ParseInput &in)
     core::TableParseResult result;
 
     std::string path(in.file_path);
-    sqlite3 *db_raw = nullptr;
-    if(sqlite3_open_v2(path.c_str(), &db_raw, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    auto opened = openReadOnly(path);
+    sqlite3 *db_raw = opened.db;
+    if(!db_raw) {
         result.ok = false;
-        result.error = db_raw ? sqlite3_errmsg(db_raw) : "Failed to open database";
-        if(db_raw)
-            sqlite3_close(db_raw);
+        result.error = opened.error.empty() ? "Failed to open database" : opened.error;
         return result;
     }
     ScopedDb db(db_raw);
@@ -80,7 +68,7 @@ core::TableParseResult SqliteParser::parse(const core::ParseInput &in)
         }
     } else {
         std::string table(in.table_name);
-        std::string escaped = escapeTableName(table);
+        std::string escaped = escapeSqlIdentifier(table);
         std::string sql =
             "SELECT * FROM \"" + escaped + "\" LIMIT " + std::to_string(kSoftRowLimit + 1);
 
@@ -98,23 +86,15 @@ core::TableParseResult SqliteParser::parse(const core::ParseInput &in)
                 // Note: column_decltype is better for empty tables,
                 // but for SQLite, types are dynamic. We'll use decltype if available.
                 const char *declType = sqlite3_column_decltype(stmt.get(), i);
-                if(declType) {
-                    std::string dt = declType;
-                    for(auto &c : dt)
-                        c = std::tolower(c);
-                    if(dt.find("int") != std::string::npos) {
-                        meta.type = core::ColumnMeta::Type::Integer;
-                    } else if(dt.find("float") != std::string::npos ||
-                              dt.find("double") != std::string::npos ||
-                              dt.find("real") != std::string::npos) {
-                        meta.type = core::ColumnMeta::Type::Float;
-                    } else if(dt.find("bool") != std::string::npos) {
-                        meta.type = core::ColumnMeta::Type::Boolean;
-                    } else {
-                        meta.type = core::ColumnMeta::Type::String;
-                    }
+                const std::string mapped = mapSqliteDeclType(declType);
+                if(mapped == "integer") {
+                    meta.type = core::ColumnMeta::Type::Integer;
+                } else if(mapped == "float") {
+                    meta.type = core::ColumnMeta::Type::Float;
+                } else if(mapped == "boolean") {
+                    meta.type = core::ColumnMeta::Type::Boolean;
                 } else {
-                    meta.type = core::ColumnMeta::Type::String; // Default
+                    meta.type = core::ColumnMeta::Type::String;
                 }
                 data->columns.push_back(std::move(meta));
             }

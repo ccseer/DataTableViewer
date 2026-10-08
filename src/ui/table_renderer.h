@@ -109,11 +109,11 @@ private:
 
     // Raw cell value: refetched full text for clamped cells, displayed text otherwise.
     QString rawCellText(const PendingCopyCell &cell,
-                        const std::unordered_map<int, std::vector<std::string>> &refetched) const;
+                        const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
     QString buildPlainText(const std::vector<PendingCopyCell> &cells,
-                           const std::unordered_map<int, std::vector<std::string>> &refetched) const;
+                           const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
     QString buildMarkdownText(const std::vector<PendingCopyCell> &cells,
-                              const std::unordered_map<int, std::vector<std::string>> &refetched) const;
+                              const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
 };
 
 } // namespace ui

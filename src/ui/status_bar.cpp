@@ -143,28 +143,81 @@ void StatusBar::setPagedLoadInfo(int64_t firstRow, int64_t lastRow, std::optiona
     m_hasLoadInfo = true;
 
     rebuildPagedTexts();
+    if(!m_indexingError.isEmpty()) {
+        setWarning(m_indexingError);
+    }
 
     m_info->setToolTip(m_tooltipLines);
     repaintInfoIcon();
-    m_progress->hide();
+    if(!m_indexing) {
+        m_progress->hide();
+    }
 
-    setValueText(m_summaryText);
+    if(!m_indexingError.isEmpty()) {
+        setValueText(tr("Indexing error: %1").arg(m_indexingError));
+    } else if(m_indexing && !m_indexingText.isEmpty()) {
+        setValueText(m_indexingText);
+    } else {
+        setValueText(m_summaryText);
+    }
 }
 
 void StatusBar::updatePagedTotal(int64_t total)
 {
+    // Cleared before the guard: indexing can finish before the first page
+    // reaches the status bar, and a flag that survives would resurrect a stale
+    // "Loading records" line from restoreInfo() on every later page turn.
+    const QString indexingText = m_indexingText;
+    m_indexing = false;
+    m_indexingText.clear();
+    m_indexingError.clear();
+
     if(!m_pagedMode || !m_hasLoadInfo)
         return;
     m_pagedTotal = total;
+    m_progress->hide();
 
     QString oldSummary = m_summaryText;
     rebuildPagedTexts();
 
     m_info->setToolTip(m_tooltipLines);
 
-    if(m_currentValueText.isEmpty() || m_currentValueText == oldSummary) {
+    // Replace only text this bar produced itself. A live cell selection owns
+    // the value line, so finishing the index must not overwrite it.
+    if(m_currentValueText.isEmpty() || m_currentValueText == oldSummary ||
+       m_currentValueText == indexingText) {
         setValueText(m_summaryText);
     }
+}
+
+void StatusBar::setIndexingProgress(int64_t totalRows)
+{
+    // Same ownership rule as updatePagedTotal: progress ticks must not evict a
+    // cell value the user just selected, because nothing restores it later.
+    const bool showsOwnText = m_currentValueText.isEmpty() ||
+                              m_currentValueText == m_summaryText ||
+                              m_currentValueText == m_indexingText;
+
+    m_indexing = true;
+    m_indexingText = tr("Loading records: %L1...").arg(totalRows);
+    m_progress->show();
+    if(showsOwnText) {
+        setValueText(m_indexingText);
+    }
+}
+
+void StatusBar::setIndexingFailed(const QString &error)
+{
+    m_indexing = false;
+    m_indexingText.clear();
+    m_indexingError = error;
+    m_progress->hide();
+    // Without load info the warning would be appended to the previous file's
+    // summary and leaked into the info tooltip as if it belonged to this one.
+    if(m_hasLoadInfo) {
+        setWarning(error);
+    }
+    setValueText(tr("Indexing error: %1").arg(error));
 }
 
 void StatusBar::rebuildPagedTexts()
@@ -258,12 +311,18 @@ QString StatusBar::text() const
 
 void StatusBar::showLoading()
 {
+    m_indexing = false;
+    m_indexingText.clear();
+    m_indexingError.clear();
+    m_summaryText.clear();
+    m_tooltipLines.clear();
     m_hasLoadInfo = false;
     m_filterActive = false;
     m_info->setPixmap(QPixmap());
     m_info->setText("Loading...");
     m_info->setToolTip("DataTableViewer");
     setValueText({});
+    m_pagedTotal.reset();
     m_progress->show();
 }
 
@@ -272,14 +331,22 @@ void StatusBar::restoreInfo()
     m_info->setText({});
     if(m_hasLoadInfo) {
         repaintInfoIcon();
-        setValueText(m_summaryText);
+        if(!m_indexingError.isEmpty()) {
+            setValueText(tr("Indexing error: %1").arg(m_indexingError));
+        } else if(m_indexing && !m_indexingText.isEmpty()) {
+            setValueText(m_indexingText);
+        } else {
+            setValueText(m_summaryText);
+        }
     } else {
         m_filterActive = false;
         m_info->setPixmap(QPixmap());
         m_info->setToolTip("DataTableViewer");
         setValueText({});
     }
-    m_progress->hide();
+    if(!m_indexing) {
+        m_progress->hide();
+    }
 }
 
 void StatusBar::updateTheme(bool dark, qreal dpr)
@@ -303,6 +370,11 @@ void StatusBar::setSorting(bool sorting)
 void StatusBar::clear()
 {
     setSorting(false);
+    m_indexing = false;
+    m_indexingText.clear();
+    m_indexingError.clear();
+    m_summaryText.clear();
+    m_tooltipLines.clear();
     m_hasLoadInfo = false;
     m_filterActive = false;
     m_info->setPixmap(QPixmap());

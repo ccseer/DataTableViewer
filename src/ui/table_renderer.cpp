@@ -228,7 +228,7 @@ void TableRenderer::performCopy(bool isMarkdown)
     pending.isMarkdown = isMarkdown;
     pending.copyRequestId = ++m_currentCopyRequestId;
     std::vector<std::pair<int, core::RefetchKey>> rowsToRefetch;
-    std::set<int> refetchedRows;
+    std::map<int, std::vector<int>> rowSelectedCols;
 
     for(const auto &idx : indices) {
         QModelIndex srcIdx = m_proxy->mapToSource(idx);
@@ -247,10 +247,18 @@ void TableRenderer::performCopy(bool isMarkdown)
         pending.cells.push_back(cell);
 
         if(clamped && mRow >= 0 && mRow < static_cast<int>(m_pageKeys.size())) {
-            if(refetchedRows.insert(mRow).second) {
-                rowsToRefetch.emplace_back(mRow, m_pageKeys[mRow]);
+            auto &cols = rowSelectedCols[mRow];
+            if(std::find(cols.begin(), cols.end(), mCol) == cols.end()) {
+                cols.push_back(mCol);
             }
         }
+    }
+
+    for(const auto &pair : rowSelectedCols) {
+        int mRow = pair.first;
+        core::RefetchKey key = m_pageKeys[mRow];
+        key.selectedColumns = pair.second;
+        rowsToRefetch.emplace_back(mRow, std::move(key));
     }
 
     if(rowsToRefetch.empty()) {
@@ -267,19 +275,22 @@ void TableRenderer::performCopy(bool isMarkdown)
 }
 
 QString TableRenderer::rawCellText(const PendingCopyCell &cell,
-                                   const std::unordered_map<int, std::vector<std::string>> &refetched) const
+                                   const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     if(cell.clamped) {
-        auto it = refetched.find(cell.modelRow);
-        if(it != refetched.end() && cell.modelCol >= 0 && cell.modelCol < static_cast<int>(it->second.size())) {
-            return QString::fromStdString(it->second[cell.modelCol]);
+        auto rowIt = refetched.find(cell.modelRow);
+        if(rowIt != refetched.end()) {
+            auto colIt = rowIt->second.find(cell.modelCol);
+            if(colIt != rowIt->second.end()) {
+                return singleLineDisplayText(colIt->second);
+            }
         }
     }
     return cell.displayedText;
 }
 
 QString TableRenderer::buildPlainText(const std::vector<PendingCopyCell> &cells,
-                                      const std::unordered_map<int, std::vector<std::string>> &refetched) const
+                                      const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     QString text;
     int lastRow = -1;
@@ -287,14 +298,14 @@ QString TableRenderer::buildPlainText(const std::vector<PendingCopyCell> &cells,
         if(lastRow != -1) {
             text += (cell.visRow != lastRow) ? "\n" : "\t";
         }
-        text += singleLineDisplayText(rawCellText(cell, refetched).toStdString());
+        text += rawCellText(cell, refetched);
         lastRow = cell.visRow;
     }
     return text;
 }
 
 QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cells,
-                                         const std::unordered_map<int, std::vector<std::string>> &refetched) const
+                                         const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     std::set<int> rowSet, colSet;
     for(const auto &c : cells) {
@@ -315,7 +326,7 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
     QString text = "|";
     for(int col : cols) {
         auto found = std::find_if(cells.begin(), cells.end(), [col](const auto &c) { return c.visCol == col; });
-        QString h = found->headerText;
+        QString h = singleLineDisplayText(found->headerText.toStdString());
         h.replace("|", "\\|");
         text += h + "|";
     }
@@ -340,7 +351,7 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
             const bool present = cell < cells.size() && cells[cell].visRow == row &&
                                  cells[cell].visCol == col;
             if(present) {
-                QString val = singleLineDisplayText(rawCellText(cells[cell], refetched).toStdString());
+                QString val = rawCellText(cells[cell], refetched);
                 val.replace("|", "\\|");
                 text += val + "|";
             } else {
@@ -372,10 +383,33 @@ void TableRenderer::onRefetchRowsCompleted(uint64_t copyRequestId,
         return;
     }
 
-    std::unordered_map<int, std::vector<std::string>> refetchedValues;
+    bool budgetExceeded = false;
+    for(const auto &res : results) {
+        if(!res.second.ok && res.second.error == core::kCopyBudgetExceededError) {
+            budgetExceeded = true;
+            break;
+        }
+    }
+
+    if(budgetExceeded) {
+        m_pendingCopy.reset();
+        emit copyRefetchIncomplete(-1);
+        return;
+    }
+
+    std::unordered_map<int, std::unordered_map<int, std::string>> refetchedValues;
     for(const auto &res : results) {
         if(res.second.ok) {
-            refetchedValues[res.first] = res.second.values;
+            auto &rowMap = refetchedValues[res.first];
+            if(!res.second.columns.empty()) {
+                for(size_t i = 0; i < res.second.columns.size() && i < res.second.values.size(); ++i) {
+                    rowMap[res.second.columns[i]] = res.second.values[i];
+                }
+            } else {
+                for(size_t i = 0; i < res.second.values.size(); ++i) {
+                    rowMap[static_cast<int>(i)] = res.second.values[i];
+                }
+            }
         }
     }
 
@@ -383,8 +417,11 @@ void TableRenderer::onRefetchRowsCompleted(uint64_t copyRequestId,
     // value; surface that so the user knows the copy may be incomplete.
     std::set<int> failedRows;
     for(const auto &cell : m_pendingCopy->cells) {
-        if(cell.clamped && refetchedValues.find(cell.modelRow) == refetchedValues.end()) {
-            failedRows.insert(cell.modelRow);
+        if(cell.clamped) {
+            auto it = refetchedValues.find(cell.modelRow);
+            if(it == refetchedValues.end() || it->second.find(cell.modelCol) == it->second.end()) {
+                failedRows.insert(cell.modelRow);
+            }
         }
     }
 

@@ -82,6 +82,9 @@ private:
     int readConfiguredPageSize() const;
     void navigatePage(int64_t targetPage, bool arrivedFromPrev,
                       std::function<void(uint64_t viewGen, uint64_t opGen)> fetchFunc);
+    // Reopens m_sourcePath/m_sourceTable on the current worker, choosing the
+    // SQLite path or the CSV descriptor from m_isCsv.
+    void openCurrentSource(uint64_t viewGen, uint64_t opGen);
 
     dtv::ui::SearchBar *m_search = nullptr;
     dtv::ui::StatusBar *m_status = nullptr;
@@ -109,6 +112,12 @@ private:
     QString m_sourcePath;
     QString m_sourceTable;
     bool m_isPaged = false;
+    bool m_isCsv = false;
+    // First page of the current table load still owes its one-time UI setup.
+    // The stacked widget cannot answer this: a CSV goes straight to the
+    // renderer, which is already the current widget, so "is the renderer
+    // showing" is true before any page has been delivered.
+    bool m_firstPagePending = false;
     bool m_pageFetchInFlight = false;
     bool m_countRequested = false;
     bool m_countFailed = false;

@@ -11,10 +11,15 @@
 #include "ui/table_picker.h"
 #include "ui/table_model.h"
 #include "ui/status_bar.h"
+#include "ui/search_bar.h"
 #include <QStackedLayout>
 #include <QPushButton>
 #include <QHeaderView>
 #include <QLabel>
+#include <QFileInfo>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QThread>
 #include <QSignalSpy>
 #include "workers/source_worker.h"
 
@@ -26,7 +31,7 @@ private slots:
 
     void test1MRowDatabaseOpensAndPages();
     void testSmallTableHidesPager();
-    void testCsvUnchanged();
+    void testCsvPaged();
     void testServerSortAndCancel();
     void testRealHeaderClicksKeepCommittedIndicator();
     void testLateSortCancelAndReplacement();
@@ -199,31 +204,396 @@ void TestViewerPaging::testSmallTableHidesPager() {
     QVERIFY(!viewer.m_pageBar->shouldBeVisible());
 }
 
-void TestViewerPaging::testCsvUnchanged() {
-    DataTableViewer viewer;
-    ViewOptionsPrivate optsPriv;
-    ViewOptions opts;
-    setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+void TestViewerPaging::testCsvPaged() {
+    // 1. Small CSV file: 1 page, pager bar hidden, sorting unsupported
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
 
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
-    // CSV/TSV is materialized, pager must be hidden
-    QVERIFY(!viewer.m_isPaged);
-    QVERIFY(viewer.m_pageBar->isHidden());
-    QVERIFY(!viewer.m_renderer->isPagedMode());
-    auto header = viewer.m_renderer->horizontalHeader();
-    header->sectionClicked(0);
-    QVERIFY(header->isSortIndicatorShown());
-    QCOMPARE(header->sortIndicatorOrder(), Qt::AscendingOrder);
-    header->sectionClicked(0);
-    QCOMPARE(header->sortIndicatorOrder(), Qt::DescendingOrder);
-    header->sectionClicked(0);
-    QVERIFY(!header->isSortIndicatorShown());
-    viewer.m_renderer->selectCell(0, 0);
-    viewer.m_renderer->copyToClipboard();
-    QCOMPARE(QGuiApplication::clipboard()->text(),
-             viewer.m_renderer->model()->index(0, 0).data().toString());
+        // CSV/TSV is now paged
+        QVERIFY(viewer.m_isPaged);
+        QVERIFY(viewer.m_isCsv);
+        QVERIFY(viewer.m_renderer->isPagedMode());
+
+        // Small CSV hides the page bar
+        QVERIFY(viewer.m_pageBar->isHidden());
+        // Back button must be hidden for CSV
+        QVERIFY(viewer.m_backBtn->isHidden());
+        // The filter box is disabled while loading; the first page must re-enable it
+        QVERIFY(viewer.m_search->isEnabled());
+
+        // Header click must not show sort indicator and must show unsupported explanation
+        auto header = viewer.m_renderer->horizontalHeader();
+        header->sectionClicked(0);
+        QVERIFY(!header->isSortIndicatorShown());
+        QCOMPARE(viewer.m_status->text(), QString("Sorting is not supported for paged CSV/TSV files"));
+
+        // Copying a cell works correctly
+        viewer.m_renderer->selectCell(0, 0);
+        viewer.m_renderer->copyToClipboard();
+        QCOMPARE(QGuiApplication::clipboard()->text(),
+                 viewer.m_renderer->model()->index(0, 0).data().toString());
+    }
+
+    // 2. Large CSV file: > 500 rows, uses pager bar and navigates pages
+    {
+        QString largeCsvPath = m_tempDir->filePath("large_paged.csv");
+        QFile file(largeCsvPath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&file);
+        out << "id,name,score\n";
+        for (int i = 1; i <= 1250; ++i) {
+            out << i << ",Item_" << i << "," << (i * 1.5) << "\n";
+        }
+        file.close();
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, largeCsvPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
+
+        QVERIFY(viewer.m_isPaged);
+        QVERIFY(viewer.m_isCsv);
+        // Page bar must be visible for multi-page CSV
+        QVERIFY(!viewer.m_pageBar->isHidden());
+        QCOMPARE(viewer.m_pagerState.page, 1LL);
+
+        // Wait for indexing to complete to verify total
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+        QCOMPARE(*viewer.m_pagerState.total, 1250LL);
+        QCOMPARE(viewer.m_pagerState.pages(), 3LL);
+
+        // Verify status bar displays final totals upon completion
+        QVERIFY(viewer.m_status->text().contains("1,250"));
+        QVERIFY(!viewer.m_status->text().contains("Loading records:"));
+
+        // Verify page-local filtering on CSV
+        viewer.m_search->setText("Item_10");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount() < 500 &&
+                                 viewer.m_renderer->filterMatchCount() > 0, 2000);
+        QVERIFY(viewer.m_status->text().contains("match on this page") ||
+                viewer.m_status->text().contains("matches on this page"));
+        viewer.m_search->clear();
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount() == 500, 2000);
+
+        // A clipped copy must survive the page turn that follows it
+        viewer.m_renderer->selectCell(0, 1);
+        viewer.m_renderer->copyToClipboard();
+        viewer.onNextPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 2000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QString("Item_1"));
+
+        // Test Next page navigation to page 3 (partial page)
+        viewer.onNextPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3, 2000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 250);
+        QCOMPARE(viewer.m_pagerState.hasMore, false);
+
+        // Test Previous page navigation back to page 2
+        viewer.onPrevPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 2000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+
+        // Test Last page navigation
+        viewer.onLastPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3, 2000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 250);
+        QCOMPARE(viewer.m_pagerState.hasMore, false);
+
+        // Test First page navigation
+        viewer.onFirstPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+
+        // Test copy budget exceeded error feedback
+        emit viewer.m_renderer->copyRefetchIncomplete(-1);
+        QVERIFY(viewer.m_status->text().contains("Copy failed"));
+        QVERIFY(viewer.m_status->text().contains("64 MiB"));
+
+        // Verify cancelPending resets firstPagePending and resets state
+        viewer.cancelPending();
+        QVERIFY(!viewer.m_isPaged);
+        QVERIFY(!viewer.m_firstPagePending);
+    }
+
+    // 3. Small TSV file: routing, format "TSV", pager bar hidden
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_diverse.tsv", optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
+        QVERIFY(viewer.m_isPaged);
+        QVERIFY(viewer.m_isCsv);
+        QVERIFY(viewer.m_pageBar->isHidden());
+        QVERIFY(viewer.m_backBtn->isHidden());
+        QVERIFY(viewer.m_status->text().contains("TSV"));
+
+        // TSV header click must also explain that sorting is not supported
+        auto header = viewer.m_renderer->horizontalHeader();
+        header->sectionClicked(0);
+        QVERIFY(!header->isSortIndicatorShown());
+        QCOMPARE(viewer.m_status->text(), QString("Sorting is not supported for paged CSV/TSV files"));
+    }
+
+    // 4. Clamped CSV cell: the copy must go through the async refetch and land
+    //    the full value, resolved by the column labels in RefetchResult.
+    {
+        const QString longValue(6000, QChar('A'));
+        QString clampedCsvPath = m_tempDir->filePath("clamped_paged.csv");
+        QFile file(clampedCsvPath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&file);
+        out << "id,name,score\n";
+        out << "1," << longValue << ",1.5\n";
+        out << "2,Item_2,3\n";
+        file.close();
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, clampedCsvPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 2, 5000);
+
+        // Page decode clamps the cell at the 4096-byte display cap, so the
+        // stored text is shorter than the value on disk.
+        QVERIFY(viewer.m_renderer->isCellClamped(0, 1));
+        QVERIFY(viewer.m_renderer->model()->index(0, 1).data().toString().length() < longValue.length());
+
+        viewer.m_renderer->selectCell(0, 1);
+        viewer.m_renderer->copyToClipboard();
+        QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), longValue, 5000);
+
+        viewer.m_renderer->copyAsMarkdown();
+        QTRY_VERIFY_WITH_TIMEOUT(QGuiApplication::clipboard()->text().contains(longValue), 5000);
+    }
+
+    // 5. Asynchronously indexed 1-page CSV: 350 rows padded past the 256 KiB
+    //    first scan chunk, so the sample scan cannot reach EOF and the first
+    //    page has to wait for the background index. The page must arrive whole
+    //    rather than as the partially indexed prefix, and the pager bar must
+    //    stay hidden because 350 rows fit in one page.
+    {
+        QString async1PagePath = m_tempDir->filePath("async_1page.csv");
+        QFile file(async1PagePath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&file);
+        out << "id,name,value\n";
+        const QString filler(1000, QChar('x'));
+        for (int i = 1; i <= 350; ++i) {
+            out << i << ",Row_" << i << "," << filler << "\n";
+        }
+        file.close();
+        QVERIFY(QFileInfo(async1PagePath).size() > 256 * 1024);
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, async1PagePath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        // A synchronous source would have served the ~250 indexed records; only
+        // a pending page that waited for the index can deliver all 350.
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 350, 5000);
+
+        // Wait for background indexing to complete
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+        QCOMPARE(*viewer.m_pagerState.total, 350LL);
+        QCOMPARE(viewer.m_pagerState.hasMore, false);
+
+        // Pager bar must be hidden seamlessly for single page
+        QVERIFY(viewer.m_pageBar->isHidden());
+    }
+
+    // 6. Back button state transition from SQLite table to CSV:
+    //    Back button must be hidden immediately upon loading CSV.
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_smallDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+        QVERIFY(!viewer.m_backBtn->isHidden());
+
+        // Now load a CSV: back button must be hidden immediately
+        setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
+        QVERIFY(viewer.m_backBtn->isHidden());
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QVERIFY(viewer.m_backBtn->isHidden());
+    }
+
+    // 7. Status bar indexing error preservation:
+    {
+        dtv::ui::StatusBar bar;
+        bar.setPagedMode(true);
+        bar.showLoading();
+        bar.setIndexingProgress(100);
+        bar.setIndexingFailed("Corrupt record at offset 1024");
+        QVERIFY(bar.text().contains("Indexing error"));
+
+        // When load info arrives after an indexing error, the error and warning
+        // must be preserved rather than wiped out by summary text.
+        bar.setPagedLoadInfo(1, 100, std::nullopt, 3, 4096, 15, "CSV", "(built-in RFC 4180 parser)");
+        QVERIFY(bar.text().contains("Indexing error"));
+        QVERIFY(bar.text().contains("Corrupt record"));
+
+        // When cell selection is cleared, restoreInfo must preserve the indexing error
+        bar.setValueText("Col0 : 42");
+        QCOMPARE(bar.text(), QString("Col0 : 42"));
+        bar.restoreInfo();
+        QVERIFY(bar.text().contains("Indexing error"));
+        QVERIFY(bar.text().contains("Corrupt record"));
+    }
+
+    // 8. Multi-page CSV whose index cannot finish before the first page is
+    //    served: the total is unknown at that moment and Next must stay
+    //    available instead of presenting a temporary end as a final one.
+    //    Rows are repeated from one block so the multi-megabyte fixture is
+    //    written in a handful of large writes instead of line by line.
+    {
+        const QByteArray row = QByteArray("1,Row_1,") + QByteArray(280, 'x') + "\n";
+        QByteArray block;
+        for(int i = 0; i < 1000; ++i) {
+            block += row;
+        }
+        const int kBlocks = 100;
+        const int kRows = 1000 * kBlocks;
+
+        QString bigCsvPath = m_tempDir->filePath("async_multipage.csv");
+        QFile file(bigCsvPath);
+        const QByteArray header = "id,name,value\n";
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write(header) == header.size());
+        for(int i = 0; i < kBlocks; ++i) {
+            QVERIFY(file.write(block) == block.size());
+        }
+        file.close();
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, bigCsvPath, optsPriv, opts);
+
+        // QTRY_VERIFY polls in 50 ms steps, which is longer than the window in
+        // which the page is served while indexing is still running, so poll
+        // tightly to observe that window.
+        for(int i = 0; i < 5000 && viewer.m_renderer->rowCount() != 500; ++i) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 1);
+            QThread::msleep(1);
+        }
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+        QVERIFY(!viewer.m_pagerState.total.has_value());
+        QVERIFY(viewer.m_pagerState.canNext());
+
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 30000);
+        QCOMPARE(*viewer.m_pagerState.total, static_cast<int64_t>(kRows));
+        // The progress line must not outlive completion.
+        QVERIFY(!viewer.m_status->text().contains("Loading records"));
+        QVERIFY(viewer.m_pagerState.canNext());
+
+        viewer.onNextPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 10000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+    }
+
+    // 9. Index progress wiring. Real slice timing decides whether a throttled
+    //    progress signal is emitted at all, so the progress, completion and
+    //    failure signals are driven directly on a file that indexes in one go.
+    //    Emitted from the UI thread the auto connection is direct, so the
+    //    viewer's handler runs before the next statement.
+    {
+        QString progressPath = m_tempDir->filePath("progress.csv");
+        QFile file(progressPath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&file);
+        out << "id,name,value\n";
+        for(int i = 1; i <= 600; ++i) {
+            out << i << ",Row_" << i << "," << i << "\n";
+        }
+        file.close();
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, progressPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+        QCOMPARE(*viewer.m_pagerState.total, 600LL);
+
+        emit viewer.m_sourceWorker->indexProgress(viewer.m_generation, 12345, false, QString());
+        QVERIFY(viewer.m_status->text().contains("Loading records"));
+        QVERIFY(viewer.m_status->text().contains("12,345"));
+
+        emit viewer.m_sourceWorker->indexProgress(viewer.m_generation, 600, true, QString());
+        QCOMPARE(*viewer.m_pagerState.total, 600LL);
+        QVERIFY(!viewer.m_status->text().contains("Loading records"));
+
+        emit viewer.m_sourceWorker->indexProgress(viewer.m_generation, 600, false,
+                                                  QString("Corrupt record at offset 1024"));
+        QVERIFY(viewer.m_status->text().contains("Indexing error"));
+        QVERIFY(viewer.m_status->text().contains("Corrupt record"));
+    }
+
+    // 10. Open failure handling: empty CSV file emits VCV_Error,
+    //     cleans up pending operations, hides the loading indicator,
+    //     and displays the error message.
+    {
+        QString emptyCsvPath = m_tempDir->filePath("empty.csv");
+        QFile file(emptyCsvPath);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.close();
+
+        DataTableViewer viewer;
+        QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, emptyCsvPath, optsPriv, opts);
+
+        QTRY_VERIFY_WITH_TIMEOUT(spyCommand.count() >= 2, 5000);
+        QCOMPARE(spyCommand.last().at(0).toInt(), static_cast<int>(VCT_StateChange));
+        QCOMPARE(spyCommand.last().at(1).toInt(), static_cast<int>(VCV_Error));
+
+        QVERIFY(viewer.m_status->text().contains("Empty file"));
+    }
+
+    // 11. Multiline column header sanitization in Markdown export:
+    //     A CSV with embedded newline in column header must not produce
+    //     broken Markdown table headers across lines.
+    {
+        QString multilineHeaderPath = m_tempDir->filePath("multiline_header.csv");
+        QFile file(multilineHeaderPath);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&file);
+        out << "\"col\nline\",score\n";
+        out << "A,1\n";
+        file.close();
+
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, multilineHeaderPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 1, 5000);
+
+        viewer.m_renderer->selectCell(0, 0);
+        viewer.m_renderer->copyAsMarkdown();
+        QString md = QGuiApplication::clipboard()->text();
+        QVERIFY(md.startsWith("|col line|\n|---|"));
+        QVERIFY(!md.contains("col\nline"));
+    }
 }
 
 void TestViewerPaging::testBackButtonTeardown() {

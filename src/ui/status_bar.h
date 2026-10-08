@@ -21,6 +21,8 @@ public:
                           int colCount, qint64 fileBytes, qint64 elapsedMs,
                           const QString &formatName, const QString &libraryCredit);
     void updatePagedTotal(int64_t total);
+    void setIndexingProgress(int64_t totalRows);
+    void setIndexingFailed(const QString &error);
     void setPagedMode(bool paged);
     void setWarning(const QString &warning);
     void setFilterMatchCount(int count, bool active);
@@ -52,6 +54,9 @@ private:
     int m_matchCount = 0;
     bool m_filterActive = false;
     bool m_hasLoadInfo = false;
+    bool m_indexing = false;
+    QString m_indexingText;
+    QString m_indexingError;
 
     bool m_pagedMode = false;
     int64_t m_firstRow = 0;

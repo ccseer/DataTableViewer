@@ -34,6 +34,11 @@ bool isSqliteExtension(const QString &suffix)
     const QString ext = suffix.toLower();
     return ext == "sqlite" || ext == "sqlite3" || ext == "db" || ext == "db3" || ext == "sl3";
 }
+bool isCsvExtension(const QString &suffix)
+{
+    const QString ext = suffix.toLower();
+    return ext == "csv" || ext == "tsv";
+}
 } // namespace
 
 DataTableViewer::DataTableViewer(QWidget *parent) : ViewerBase(parent)
@@ -137,8 +142,14 @@ void DataTableViewer::init()
 
     connect(m_renderer, &dtv::ui::TableRenderer::copyRefetchIncomplete, this,
             [this](int failedRows) {
-                m_status->setValueText(tr("Copy incomplete: %1 truncated row(s) could not be refreshed")
-                                           .arg(failedRows));
+                if(failedRows < 0) {
+                    m_status->setValueText(tr("Copy failed: %1 MiB payload budget exceeded")
+                                               .arg(static_cast<qlonglong>(dtv::core::kMaxCopyBudgetBytes /
+                                                                           (1024 * 1024))));
+                } else {
+                    m_status->setValueText(tr("Copy incomplete: %1 truncated row(s) could not be refreshed")
+                                               .arg(failedRows));
+                }
             });
 
     connect(m_renderer, &dtv::ui::TableRenderer::refetchRowsRequested, this,
@@ -273,6 +284,9 @@ void DataTableViewer::cancelPending()
     }
 
     m_isPaged = false;
+    m_isCsv = false;
+    m_firstPagePending = false;
+    if(m_backBtn) m_backBtn->hide();
     m_sorting = false;
     m_recoveringSort = false;
     m_canSort = false;
@@ -377,6 +391,16 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
         return;
     }
 
+    // All CSV and TSV files go to the paged loader (CsvFileSource + SourceWorker).
+    // The byte-reading TableWorker path and CsvParser no longer serve production
+    // CSV/TSV loading: nothing falls back to them when the paged source fails to
+    // open, and they now exist for the parser unit tests and for the non-CSV
+    // extensions still registered in ParserRegistry.
+    if(isCsvExtension(info.suffix())) {
+        loadSelectedTable(path, "");
+        return;
+    }
+
     auto parser = dtv::core::ParserRegistry::instance().createParser(info.suffix().toStdString());
     if(!parser) {
         qprintt << "Error: No parser found for extension:" << info.suffix();
@@ -416,6 +440,7 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     cancelPending();
 
     m_isPaged = true;
+    m_firstPagePending = true;
     m_sourcePath = path;
     m_sourceTable = tableName;
     m_countRequested = false;
@@ -426,9 +451,23 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_status->showLoading();
     m_search->setEnabled(false);
     m_pageBar->hide();
+    if(m_backBtn) m_backBtn->hide();
 
     QFileInfo info(path);
     m_fileBytes = info.size();
+    m_isCsv = isCsvExtension(info.suffix());
+
+    // Resolved once per load: every page of the same file reports the same
+    // format, credit and header-state key.
+    const bool isTsv = m_isCsv && info.suffix().compare("tsv", Qt::CaseInsensitive) == 0;
+    const QString formatName = m_isCsv ? (isTsv ? "TSV" : "CSV") : "SQLite";
+    const QString libraryCredit = m_isCsv ? "(built-in RFC 4180 parser)" : "SQLite 3";
+    // Header state is keyed by the format name the pre-paging CSV path used:
+    // CsvParser reported "CSV/TSV" for auto-detected .csv files and "TSV" for
+    // .tsv files. Reusing those keys keeps the column layouts users saved
+    // before CSV paging shipped.
+    const QString stateKey = !m_isCsv ? makeKey("SQLite", tableName)
+                                      : (isTsv ? QString("TSV") : QString("CSV/TSV"));
 
     m_openElapsedMs = 0;
     m_pageTimer.start();
@@ -437,22 +476,49 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
     m_sourceThread = new BackgroundThread;
-    m_countThread = new BackgroundThread;
     m_sourceWorker = new dtv::workers::SourceWorker(m_viewGen, m_opGen);
-    m_countWorker = new dtv::workers::CountWorker(m_viewGen);
-
     m_sourceWorker->moveToThread(m_sourceThread);
-    m_countWorker->moveToThread(m_countThread);
-
     connect(m_sourceWorker, &QObject::destroyed, m_sourceThread, &QObject::deleteLater);
-    connect(m_countWorker, &QObject::destroyed, m_countThread, &QObject::deleteLater);
+
+    if(!m_isCsv) {
+        m_countThread = new BackgroundThread;
+        m_countWorker = new dtv::workers::CountWorker(m_viewGen);
+        m_countWorker->moveToThread(m_countThread);
+        connect(m_countWorker, &QObject::destroyed, m_countThread, &QObject::deleteLater);
+    }
+
+    connect(m_sourceWorker, &dtv::workers::SourceWorker::indexProgress, this,
+            [this](uint64_t viewGen, qint64 totalRows, bool isComplete, const QString &error) {
+                if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged || !m_isCsv)
+                    return;
+
+                if(!error.isEmpty()) {
+                    // Indexing is terminal on error: no further slice follows,
+                    // so the spinner must stop and the reason must be shown.
+                    m_status->setIndexingFailed(error);
+                    return;
+                }
+
+                if(isComplete) {
+                    m_pagerState.total = totalRows;
+                    m_pagerState.hasMore = (totalRows > m_pagerState.page * m_pagerState.pageSize);
+                    m_status->updatePagedTotal(totalRows);
+                    if(!m_firstPagePending) {
+                        // setPagerState applies PageBar::shouldBeVisible(), the
+                        // single owner of the pager hide/show rule.
+                        m_pageBar->setPagerState(m_pagerState);
+                    }
+                } else {
+                    m_status->setIndexingProgress(totalRows);
+                }
+            });
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::openCompleted, this,
             [this](uint64_t viewGen, uint64_t opGen, bool ok,
                    const QString &error,
                    const std::vector<dtv::core::ColumnMeta> &columns,
                    bool canSort) {
-                if(viewGen != m_generation || !m_isPaged || opGen != m_opGen->load())
+                if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged || opGen != m_opGen->load())
                     return;
 
                 m_canSort = canSort;
@@ -473,6 +539,8 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 }
 
                 if(!ok) {
+                    cancelPending();
+                    m_status->clear();
                     m_status->setValueText("Error: " + error);
                     emit sigCommand(VCT_StateChange, VCV_Error);
                     return;
@@ -480,9 +548,14 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
 
                 m_colCount = static_cast<int>(columns.size());
                 int pageSize = readConfiguredPageSize();
+                auto savedTotal = m_pagerState.total;
                 m_pagerState = dtv::core::PagerState{};
+                m_pagerState.total = savedTotal;
                 m_pagerState.pageSize = pageSize;
                 m_pagerState.page = 1;
+                if(savedTotal.has_value()) {
+                    m_pagerState.hasMore = (*savedTotal > pageSize);
+                }
                 m_pendingPage = 1;
                 m_pendingArrivedFromPrev = false;
                 m_pageFetchInFlight = true;
@@ -494,9 +567,9 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
             });
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::pageReady, this,
-            [this, path, tableName](uint64_t viewGen, uint64_t opGen,
+            [this, path, tableName, formatName, libraryCredit, stateKey](uint64_t viewGen, uint64_t opGen,
                                     std::shared_ptr<const dtv::core::PageResult> result) {
-                if(viewGen != m_generation || (m_opGen && opGen != m_opGen->load()) || !m_isPaged)
+                if(viewGen != static_cast<uint64_t>(m_generation) || (m_opGen && opGen != m_opGen->load()) || !m_isPaged)
                     return;
 
                 m_pageFetchInFlight = false;
@@ -510,7 +583,7 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                     return;
                 }
 
-                const bool isInitialLoad = (m_stack->currentWidget() != m_renderer);
+                const bool isInitialLoad = m_firstPagePending;
 
                 if(!isInitialLoad && !m_sorting && result->data->rows.empty()) {
                     // The requested page vanished because data was modified or
@@ -536,7 +609,11 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 m_openElapsedMs = m_pageTimer.elapsed();
                 m_pagerState.page = m_pendingPage;
                 m_pagerState.arrivedFromPrev = m_pendingArrivedFromPrev;
-                m_pagerState.hasMore = result->hasMore;
+                if(m_pagerState.total.has_value()) {
+                    m_pagerState.hasMore = (*m_pagerState.total > m_pagerState.page * m_pagerState.pageSize);
+                } else {
+                    m_pagerState.hasMore = result->hasMore;
+                }
                 m_currentToken = result->token;
 
                 m_renderer->setPageData(result->data, result->keys, result->clamped);
@@ -547,13 +624,15 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 }
 
                 if(isInitialLoad) {
-                    m_renderer->setStateKey(makeKey("SQLite", tableName));
+                    m_firstPagePending = false;
+                    m_renderer->setStateKey(stateKey);
                     m_renderer->restoreHeaderState(ini());
                     m_renderer->horizontalHeader()->setSortIndicatorShown(false);
                     m_stack->setCurrentWidget(m_renderer);
                     m_search->show();
                     m_search->setEnabled(true);
-                    m_backBtn->show();
+                    if(m_backBtn)
+                        m_backBtn->setVisible(!m_isCsv);
                     m_renderer->setPagedMode(true);
                     m_search->setPagedMode(true);
                     m_status->setPagedMode(true);
@@ -566,14 +645,16 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 int64_t lastRow = rowCount > 0 ? firstRow + rowCount - 1 : 0;
 
                 m_status->setPagedLoadInfo(firstRow, lastRow, m_pagerState.total, m_colCount,
-                                          m_fileBytes, m_openElapsedMs, "SQLite", "SQLite 3");
+                                          m_fileBytes, m_openElapsedMs, formatName, libraryCredit);
 
+                // Publishing the state is enough: setPagerState itself applies
+                // PageBar::shouldBeVisible(), which hides a single-page file.
                 m_pageBar->setPagerState(m_pagerState);
 
                 emit sigCommand(VCT_StateChange, VCV_Loaded);
 
-                // Start async COUNT only once per table load
-                if(!m_countRequested && !m_countFailed && !m_pagerState.total.has_value() && m_countWorker) {
+                // Start async COUNT only once per SQLite table load
+                if(!m_isCsv && !m_countRequested && !m_countFailed && !m_pagerState.total.has_value() && m_countWorker) {
                     m_countRequested = true;
                     QMetaObject::invokeMethod(m_countWorker, "count", Qt::QueuedConnection,
                                               Q_ARG(uint64_t, viewGen),
@@ -584,14 +665,14 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::refetchRowsCompleted, this,
             [this](uint64_t viewGen, uint64_t copyRequestId, const auto &results) {
-                if(viewGen != m_generation || !m_isPaged)
+                if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged)
                     return;
                 m_renderer->onRefetchRowsCompleted(copyRequestId, results);
             });
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::sortCompleted, this,
             [this](uint64_t viewGen, uint64_t opGen, bool ok, const QString &error, qint64 total) {
-                if(viewGen != m_generation || !m_isPaged || opGen != m_opGen->load()) return;
+                if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged || opGen != m_opGen->load()) return;
                 if(m_recoveringSort) {
                     if(ok) finishSortRecovery();
                     else { failSortRecovery(error); }
@@ -607,29 +688,50 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                     Q_ARG(uint64_t, viewGen), Q_ARG(uint64_t, opGen), Q_ARG(int, m_pagerState.pageSize));
             });
 
-    connect(m_countWorker, &dtv::workers::CountWorker::countCompleted, this,
-            [this](uint64_t viewGen, bool ok, const QString &error, qint64 total) {
-                if(viewGen != m_generation || !m_isPaged)
-                    return;
+    if(!m_isCsv && m_countWorker) {
+        connect(m_countWorker, &dtv::workers::CountWorker::countCompleted, this,
+                [this](uint64_t viewGen, bool ok, const QString &error, qint64 total) {
+                    if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged)
+                        return;
 
-                ++m_countCompletedCount;
+                    ++m_countCompletedCount;
 
-                if(ok && !m_sortTotalAuthoritative) {
-                    m_pagerState.total = total;
-                    m_pageBar->setPagerState(m_pagerState);
-                    m_status->updatePagedTotal(total);
-                } else if(!ok) {
-                    m_countFailed = true;
-                    m_status->setWarning(tr("Row count failed: %1").arg(error));
-                }
-            });
+                    if(ok && !m_sortTotalAuthoritative) {
+                        m_pagerState.total = total;
+                        m_pageBar->setPagerState(m_pagerState);
+                        m_status->updatePagedTotal(total);
+                    } else if(!ok) {
+                        m_countFailed = true;
+                        m_status->setWarning(tr("Row count failed: %1").arg(error));
+                    }
+                });
+        m_countThread->start();
+    }
 
     m_sourceThread->start();
-    m_countThread->start();
 
-    QMetaObject::invokeMethod(m_sourceWorker, "open", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, m_generation), Q_ARG(uint64_t, 1ULL),
-                              Q_ARG(QString, path), Q_ARG(QString, tableName));
+    openCurrentSource(m_generation, 1ULL);
+}
+
+void DataTableViewer::openCurrentSource(uint64_t viewGen, uint64_t opGen)
+{
+    if(!m_sourceWorker)
+        return;
+
+    if(!m_isCsv) {
+        QMetaObject::invokeMethod(m_sourceWorker, "open", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, viewGen), Q_ARG(uint64_t, opGen),
+                                  Q_ARG(QString, m_sourcePath), Q_ARG(QString, m_sourceTable));
+        return;
+    }
+
+    // A zero delimiter asks the source to detect it from the file head.
+    const bool isTsv = QFileInfo(m_sourcePath).suffix().compare("tsv", Qt::CaseInsensitive) == 0;
+    dtv::workers::SourceOpenDescriptor desc{dtv::workers::SourceKind::Csv, m_sourcePath, "",
+                                            isTsv ? '\t' : '\0'};
+    QMetaObject::invokeMethod(m_sourceWorker, "openDescriptor", Qt::QueuedConnection,
+                              Q_ARG(uint64_t, viewGen), Q_ARG(uint64_t, opGen),
+                              Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
 }
 
 void DataTableViewer::onSortClicked(int column)
@@ -641,7 +743,12 @@ void DataTableViewer::onSortClicked(int column)
     if(m_committedSort) header->setSortIndicator(m_committedSort->column,
         m_committedSort->ascending ? Qt::AscendingOrder : Qt::DescendingOrder);
     if(!m_canSort || !m_sourceWorker || m_recoveringSort ||
-       (m_pageFetchInFlight && !m_sorting)) return;
+       (m_pageFetchInFlight && !m_sorting)) {
+        if(m_isCsv && m_status) {
+            m_status->setValueText(tr("Sorting is not supported for paged CSV/TSV files"));
+        }
+        return;
+    }
     auto previous = m_pendingSort ? m_pendingSort : m_committedSort;
     m_pendingSort = SortState{column, !(previous && previous->column == column && previous->ascending)};
     m_sorting = true;
@@ -683,9 +790,7 @@ void DataTableViewer::recoverSort()
     auto opGen = m_opGen->fetch_add(1) + 1;
     // Reopen before restoring: a superseded request may already have promoted
     // its order table before its completion was discarded by the worker.
-    QMetaObject::invokeMethod(m_sourceWorker, "open", Qt::QueuedConnection,
-        Q_ARG(uint64_t, m_viewGen->load()), Q_ARG(uint64_t, opGen),
-        Q_ARG(QString, m_sourcePath), Q_ARG(QString, m_sourceTable));
+    openCurrentSource(m_viewGen->load(), opGen);
 }
 
 void DataTableViewer::finishSortRecovery()

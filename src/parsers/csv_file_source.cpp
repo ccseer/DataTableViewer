@@ -24,7 +24,6 @@ namespace {
 constexpr size_t kMaxSampleRows = 200;
 constexpr size_t kMaxSampleCellBytes = 64;
 constexpr size_t kMaxHeaderNameBytes = 4096;
-constexpr size_t kMaxCopyBudget = 64 * 1024 * 1024; // 64 MiB
 // A zero-byte slice budget never advances the scan, so a worker looping while
 // the index is incomplete would spin forever. Floor the slice instead.
 constexpr size_t kMinSliceBytes = 4096;
@@ -504,7 +503,7 @@ core::IndexReadiness CsvFileSource::readiness(int64_t firstOrdinal, int pageSize
 {
     if (firstOrdinal < 0 || pageSize <= 0)
         return core::IndexReadiness::Failed;
-    if (m_impl->sourceChanged || m_impl->index.hasFailed())
+    if (m_impl->sourceChanged || m_impl->index.hasFailed() || m_impl->scanFailed)
         return core::IndexReadiness::Failed;
 
     // Unsigned arithmetic keeps an extreme ordinal from overflowing into a
@@ -568,6 +567,7 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     std::string chunk;
     std::string err;
     if (!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, err)) {
+        m_impl->scanFailed = true;
         progress.error = err;
         return progress;
     }
@@ -887,7 +887,7 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
             return;
         if (colIndex < colCount && selected[colIndex]) {
             totalBytes += fragment.size();
-            if (totalBytes > kMaxCopyBudget) {
+            if (totalBytes > core::kMaxCopyBudgetBytes) {
                 budgetExceeded = true;
                 return;
             }
@@ -901,13 +901,13 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
     };
     if (!scanner.feed(rawRecord, span->start, true, cancelRefetch)) {
         result.ok = false;
-        result.error = budgetExceeded ? "Copy budget exceeded (64 MiB)" : "Cancelled";
+        result.error = budgetExceeded ? core::kCopyBudgetExceededError : "Cancelled";
         return result;
     }
 
     if (budgetExceeded) {
         result.ok = false;
-        result.error = "Copy budget exceeded (64 MiB)";
+        result.error = core::kCopyBudgetExceededError;
         return result;
     }
 

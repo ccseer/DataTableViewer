@@ -1,5 +1,6 @@
 #pragma once
 #include "table_data.h"
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -38,6 +39,13 @@ struct RefetchResult {
     std::vector<int> columns;
     std::vector<std::string> values;
 };
+// Aggregate budget for one copy batch: cell values plus the separators and
+// markup the renderer adds. The source and the worker enforce the same limit,
+// so both must read it from here rather than carry a private copy of the
+// number. A batch that exceeds it fails as a whole: a partially serialized
+// payload must never reach the clipboard.
+inline constexpr std::size_t kMaxCopyBudgetBytes = 64 * 1024 * 1024;
+inline constexpr char kCopyBudgetExceededError[] = "Copy budget exceeded (64 MiB)";
 enum class IndexReadiness {
     Ready,
     Pending,

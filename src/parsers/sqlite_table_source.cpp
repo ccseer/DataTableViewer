@@ -555,6 +555,7 @@ core::RefetchResult SqliteTableSource::refetch(const core::RefetchKey &key) {
     }
     for(size_t i = 0; i < s.columns.size(); ++i) {
         bool ignored;
+        result.columns.push_back(static_cast<int>(i));
         result.values.push_back(cellText(stmt.get(), static_cast<int>(i), false, ignored));
     }
     result.ok = true;

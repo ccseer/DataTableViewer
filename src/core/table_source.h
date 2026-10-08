@@ -14,6 +14,8 @@ using SqlValue =
 struct RefetchKey {
     std::optional<int64_t> rowid;
     std::vector<SqlValue> primaryKey;
+    std::optional<int64_t> csvOrdinal;
+    std::vector<int> selectedColumns;
 };
 struct PageToken {
     int64_t firstKey = 0;
@@ -33,7 +35,20 @@ struct PageResult {
 struct RefetchResult {
     bool ok = false;
     std::string error;
+    std::vector<int> columns;
     std::vector<std::string> values;
+};
+enum class IndexReadiness {
+    Ready,
+    Pending,
+    End,
+    Failed
+};
+struct IndexProgress {
+    int64_t indexedRows = 0;
+    uint64_t scannedBytes = 0;
+    bool isComplete = false;
+    std::string error;
 };
 using CancelCheck = std::function<bool()>;
 class ITableSource {
@@ -53,6 +68,16 @@ class ITableSource {
     virtual bool canRefetch() const = 0;
     virtual bool sort(size_t column, bool ascending, CancelCheck cancel = {}) = 0;
     virtual RefetchResult refetch(const RefetchKey &key) = 0;
+    virtual bool isIndexable() const {
+        return false;
+    }
+    virtual IndexReadiness readiness(int64_t /*firstOrdinal*/, int /*pageSize*/) const {
+        return IndexReadiness::Ready;
+    }
+    virtual IndexProgress advanceIndex(size_t /*byteBudget*/, CancelCheck /*cancel*/ = {}) {
+        return {};
+    }
+    virtual void setCancelCheck(CancelCheck /*cancel*/) {}
 };
 // One materialized page: navigation returns the same complete data, ignoring
 // page size and anchors. hasMore is false; this adapter does not use a pager.

@@ -79,9 +79,15 @@ core::TableParseResult CsvParser::parse(const core::ParseInput &in)
     };
 
     CsvRecordScanner scanner(delim, std::move(cb));
-    scanner.feed(in.bytes, 0, true, [&]() {
+    bool feedOk = scanner.feed(in.bytes, 0, true, [&]() {
         return data->rows.size() >= kMaxParserRows;
     });
+
+    if(!feedOk && !data->truncated) {
+        result.ok = false;
+        result.error = "Parse cancelled or failed";
+        return result;
+    }
 
     if(data->columns.empty() && data->rows.empty()) {
         result.ok = false;

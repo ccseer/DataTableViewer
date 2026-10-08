@@ -36,6 +36,6 @@ PageResult MaterializedTableSource::last(int, std::optional<int64_t>) {
     return first(0);
 }
 RefetchResult MaterializedTableSource::refetch(const RefetchKey &) {
-    return {false, "Materialized cells do not need refetch", {}};
+    return {false, "Materialized cells do not need refetch", {}, {}};
 }
 } // namespace dtv::core

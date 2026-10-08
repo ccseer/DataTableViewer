@@ -13,6 +13,15 @@ namespace {
 
 constexpr int kInferenceSampleRows = 200;
 
+// A row may legitimately be shorter than the header: short rows are padded with
+// empty strings, and doing that eagerly for every sampled row costs copies.
+// Reading past row.size() is undefined behaviour, so this is the single place
+// that decides what a missing trailing cell means.
+std::string_view cellAt(const std::vector<std::string> &row, size_t col)
+{
+    return col < row.size() ? std::string_view(row[col]) : std::string_view();
+}
+
 bool isBoolean(std::string_view s)
 {
     if(s.empty())
@@ -111,7 +120,7 @@ void infer(TableData &data)
         bool floatHasDecimalOrExponent = false;
 
         for(int i = 0; i < sampleCount; ++i) {
-            const std::string &cell = data.rows[i][colIdx];
+            const std::string_view cell = cellAt(data.rows[i], static_cast<size_t>(colIdx));
             if(cell.empty())
                 continue;
 
@@ -148,6 +157,11 @@ void infer(TableData &data)
             auto &cache = data.numeric_cache.by_column[colIdx];
             cache.reserve(rowCount);
             for(int i = 0; i < rowCount; ++i) {
+                if(static_cast<size_t>(colIdx) >= data.rows[i].size()) {
+                    cache.push_back(std::numeric_limits<double>::quiet_NaN());
+                    continue;
+                }
+
                 const std::string &cell = data.rows[i][colIdx];
                 if(cell.empty()) {
                     cache.push_back(std::numeric_limits<double>::quiet_NaN());

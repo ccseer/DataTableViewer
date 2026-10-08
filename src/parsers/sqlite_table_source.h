@@ -25,7 +25,7 @@ class SqliteTableSource final : public core::ITableSource {
     bool canRefetch() const override;
     bool sort(size_t column, bool ascending, core::CancelCheck cancel = {}) override;
     core::RefetchResult refetch(const core::RefetchKey &) override;
-    void setCancelCheck(core::CancelCheck cancel);
+    void setCancelCheck(core::CancelCheck cancel) override;
     std::shared_ptr<InterruptHandle> interruptHandle() const;
     void interrupt();
 

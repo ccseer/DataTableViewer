@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <algorithm>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -185,7 +186,7 @@ private slots:
 
     void testGiantFieldAcrossChunks()
     {
-        // Giant field > 300 KiB crossing 64 KiB and 256 KiB
+        // Giant quoted field > 300 KiB crossing 64 KiB and 256 KiB
         std::string giantText(300 * 1024, 'X');
         std::string input = "id,data\n1,\"" + giantText + "\"\n2,end\n";
 
@@ -194,6 +195,36 @@ private slots:
         QCOMPARE(records[1].fields[1].size(), giantText.size());
         QCOMPARE(records[1].fields[1], giantText);
         QCOMPARE(records[2].fields[1], std::string("end"));
+    }
+
+    void testGiantUnquotedFieldAcrossChunks()
+    {
+        // Giant unquoted field > 300 KiB crossing 64 KiB chunks
+        std::string giantText(300 * 1024, 'Y');
+        std::string input = "id,data\n1," + giantText + "\n2,end\n";
+
+        auto records = scanAll(input, ',', 64 * 1024);
+        QCOMPARE(records.size(), 3ull);
+        QCOMPARE(records[1].fields[1].size(), giantText.size());
+        QCOMPARE(records[1].fields[1], giantText);
+        QCOMPARE(records[2].fields[1], std::string("end"));
+    }
+
+    void testCancellationInsideQuotedField()
+    {
+        // Cancellation inside a giant quoted field
+        std::string giantText(200 * 1024, 'Z');
+        std::string input = "id,data\n1,\"" + giantText + "\"\n";
+
+        dtv::parsers::CsvRecordScanner scanner(',', {});
+        int checkCount = 0;
+        bool ok = scanner.feed(input, 0, true, [&]() {
+            checkCount++;
+            return checkCount >= 2;
+        });
+
+        QVERIFY(!ok);
+        QVERIFY(checkCount >= 2);
     }
 
     void testMalformedQuotesAtEof()

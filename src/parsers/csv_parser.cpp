@@ -1,13 +1,12 @@
 #include "csv_parser.h"
+#include "csv_record_scanner.h"
 #include "core/parser_registry.h"
 #include <algorithm>
-#include <sstream>
 
 namespace dtv {
 namespace parsers {
 
 namespace {
-constexpr size_t kMaxColumns = 256;
 constexpr size_t kMaxParserRows = 100000;
 } // namespace
 
@@ -28,34 +27,7 @@ std::string CsvParser::library_credit() const
 
 char CsvParser::detectDelimiter(std::string_view bytes)
 {
-    std::string_view sample = bytes.substr(0, std::min<size_t>(bytes.size(), 4096));
-
-    int commaCount = 0;
-    int tabCount = 0;
-    int lines = 0;
-
-    size_t pos = 0;
-    while(pos < sample.size() && lines < 10) {
-        size_t nextLine = sample.find('\n', pos);
-        if(nextLine == std::string_view::npos)
-            nextLine = sample.size();
-
-        std::string_view line = sample.substr(pos, nextLine - pos);
-        if(!line.empty()) {
-            for(char c : line) {
-                if(c == ',')
-                    commaCount++;
-                else if(c == '\t')
-                    tabCount++;
-            }
-            lines++;
-        }
-        pos = nextLine + 1;
-    }
-
-    if(tabCount > commaCount * 2 && tabCount > 0)
-        return '\t';
-    return ',';
+    return CsvRecordScanner::detectDelimiter(bytes);
 }
 
 core::TableParseResult CsvParser::parse(const core::ParseInput &in)
@@ -70,90 +42,23 @@ core::TableParseResult CsvParser::parse(const core::ParseInput &in)
     char delim = m_autoDetect ? detectDelimiter(in.bytes) : m_delimiter;
 
     auto data = std::make_shared<core::TableData>();
-    size_t invalidUtf8Count = 0;
-
-    auto appendCell = [&](std::string &currentCell, std::vector<std::string> &row) {
-        if(row.size() < kMaxColumns) {
-            row.push_back(std::move(currentCell));
-        }
-        currentCell.clear();
-    };
-
     std::vector<std::string> currentRow;
     std::string currentCell;
-    bool inQuotes = false;
 
-    const char *p = in.bytes.data();
-    const char *end = p + in.bytes.size();
-
-    while(p < end) {
-        char c = *p;
-
-        // Simple UTF-8 validation/replacement (only basic check for stray 0x80+)
-        if(static_cast<unsigned char>(c) > 0x7F) {
-            // Very basic: just check if it's a valid starting byte or continuation
-            // For a real app, we'd use a proper UTF-8 decoder.
-            // Here we just count it and let it pass if it looks like part of a sequence,
-            // or replace if it's obviously broken.
-            // To keep it simple as per SPEC: "replace invalid with U+FFFD"
-            // We'll just assume for now that if we can't decode it, it's invalid.
-            // Since we're in C++, we'll just treat it as bytes.
-            // The SPEC says "count is recorded as a soft warning".
-        }
-
-        if(inQuotes) {
-            if(c == '"') {
-                if(p + 1 < end && *(p + 1) == '"') {
-                    currentCell += '"';
-                    p++;
-                } else {
-                    inQuotes = false;
-                }
-            } else {
-                currentCell += c;
-            }
-        } else {
-            if(c == '"') {
-                inQuotes = true;
-            } else if(c == delim) {
-                appendCell(currentCell, currentRow);
-            } else if(c == '\n' || c == '\r') {
-                appendCell(currentCell, currentRow);
-                if(c == '\r' && p + 1 < end && *(p + 1) == '\n')
-                    p++;
-
-                if(!currentRow.empty() || !currentCell.empty()) {
-                    if(data->columns.empty()) {
-                        // First row is header
-                        for(size_t i = 0; i < currentRow.size(); ++i) {
-                            core::ColumnMeta meta;
-                            meta.name = currentRow[i];
-                            if(meta.name.empty())
-                                meta.name = "Col" + std::to_string(i);
-                            data->columns.push_back(std::move(meta));
-                        }
-                    } else {
-                        data->rows.push_back(std::move(currentRow));
-                    }
-                }
-                currentRow.clear();
+    CsvRecordScanner::Callbacks cb;
+    cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
+        if(currentRow.size() < CsvRecordScanner::kMaxColumns) {
+            currentCell.append(fragment.data(), fragment.size());
+            if(isEnd) {
+                currentRow.push_back(std::move(currentCell));
                 currentCell.clear();
-
-                if(data->rows.size() >= kMaxParserRows) {
-                    data->truncated = true;
-                    break;
-                }
-            } else {
-                currentCell += c;
             }
         }
-        p++;
-    }
+    };
 
-    // Handle last row if no trailing newline
-    if(!currentRow.empty() || !currentCell.empty() || inQuotes) {
-        appendCell(currentCell, currentRow);
+    cb.onRecord = [&](uint64_t /*recordOrdinal*/, uint64_t /*start*/, uint64_t /*end*/) {
         if(data->columns.empty()) {
+            // First row is header
             for(size_t i = 0; i < currentRow.size(); ++i) {
                 core::ColumnMeta meta;
                 meta.name = currentRow[i];
@@ -162,9 +67,21 @@ core::TableParseResult CsvParser::parse(const core::ParseInput &in)
                 data->columns.push_back(std::move(meta));
             }
         } else {
-            data->rows.push_back(std::move(currentRow));
+            if(data->rows.size() < kMaxParserRows) {
+                data->rows.push_back(std::move(currentRow));
+            }
+            if(data->rows.size() >= kMaxParserRows) {
+                data->truncated = true;
+            }
         }
-    }
+        currentRow.clear();
+        currentCell.clear();
+    };
+
+    CsvRecordScanner scanner(delim, std::move(cb));
+    scanner.feed(in.bytes, 0, true, [&]() {
+        return data->rows.size() >= kMaxParserRows;
+    });
 
     if(data->columns.empty() && data->rows.empty()) {
         result.ok = false;
@@ -182,10 +99,6 @@ core::TableParseResult CsvParser::parse(const core::ParseInput &in)
     data->total_rows = data->rows.size();
     result.data = data;
     result.ok = true;
-
-    if(invalidUtf8Count > 0) {
-        result.warning = std::to_string(invalidUtf8Count) + " invalid UTF-8 bytes replaced";
-    }
 
     return result;
 }

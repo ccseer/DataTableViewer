@@ -38,6 +38,8 @@ set(CORE_SOURCES
 )
 
 set(PARSER_SOURCES
+    src/parsers/csv_record_scanner.h
+    src/parsers/csv_record_scanner.cpp
     src/parsers/csv_parser.h
     src/parsers/csv_parser.cpp
     src/parsers/sqlite_parser.h
@@ -139,6 +141,7 @@ if(BUILD_TESTS)
         set(TABLE_TEST_TARGETS ${TABLE_TEST_TARGETS} ${NAME} PARENT_SCOPE)
     endfunction()
 
+    add_table_test(test_csv_record_scanner tests/test_csv_record_scanner.cpp)
     add_table_test(test_csv_parser    tests/test_csv_parser.cpp)
     add_table_test(test_type_inferrer tests/test_type_inferrer.cpp)
     add_table_test(test_sqlite_parser  tests/test_sqlite_parser.cpp)

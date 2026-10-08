@@ -73,6 +73,26 @@ private slots:
         auto result = parser.parse(input);
         QCOMPARE(result.ok, shouldSucceed);
     }
+
+    void testMaxParserRowsTruncation()
+    {
+        // Verify that rows beyond 100,000 are not overshot into data->rows
+        std::string input = "col\n";
+        input.reserve(105000 * 2 + 10);
+        for(int i = 0; i < 105000; ++i) {
+            input += "1\n";
+        }
+
+        dtv::parsers::CsvParser parser;
+        dtv::core::ParseInput in;
+        in.bytes = input;
+
+        auto result = parser.parse(in);
+        QVERIFY(result.ok);
+        QCOMPARE(result.data->columns.size(), 1ull);
+        QCOMPARE(result.data->rows.size(), 100000ull);
+        QVERIFY(result.data->truncated);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestCsvParser)

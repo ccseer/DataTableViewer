@@ -45,7 +45,7 @@ char CsvRecordScanner::detectDelimiter(std::string_view bytes)
             }
             lines++;
         }
-        pos = nextLine + 1;
+        pos = (nextLine < sample.size()) ? nextLine + 1 : sample.size();
     }
 
     if (tabCount > commaCount * 2 && tabCount > 0)

@@ -254,10 +254,11 @@ void TableRenderer::performCopy(bool isMarkdown)
         }
     }
 
-    for(const auto &pair : rowSelectedCols) {
+    for(auto &pair : rowSelectedCols) {
+        std::sort(pair.second.begin(), pair.second.end());
         int mRow = pair.first;
         core::RefetchKey key = m_pageKeys[mRow];
-        key.selectedColumns = pair.second;
+        key.selectedColumns = std::move(pair.second);
         rowsToRefetch.emplace_back(mRow, std::move(key));
     }
 

@@ -10,9 +10,9 @@ database tool.
 
 ## Features
 
-- **CSV and TSV preview**: header detection, quoted-field handling, BOM stripping, and tab/comma support
+- **CSV and TSV paging**: bounded-memory paging backed by disk offset indexing, handling large files (>64 MiB, 100k+ rows) without memory exhaustion or truncation
 - **SQLite preview**: browse database tables, pick one, then page through large tables without loading the whole database
-- **SQLite paging**: configurable page size, asynchronous row counts, server-side sorting, and current-page-only filtering
+- **Table paging**: configurable page size, asynchronous row counts and index progress, and current-page-only filtering
 - **Interactive table view**: sortable columns, movable/resizable headers, alternating rows, and TSV copy
 - **Type-aware sorting**: numeric columns sort by numeric value instead of plain text
 - **Live filtering**: search across the current table while keeping the UI responsive
@@ -33,6 +33,12 @@ database tool.
 - `.db`
 - `.db3`
 - `.sl3`
+
+## Paging, Sorting & Resource Bounds
+
+- **Paged CSV and TSV preview**: Large files are indexed into a temporary binary disk index in the background without reading the entire file into RAM. The first page renders in < 500 ms while background indexing continues in 256 KiB slices. Single-page files (`total <= pageSize`) hide the pager bar.
+- **Sorting behavior**: Full-file sorting is available for SQLite tables with a usable rowid and small in-memory tables. Full-file sorting is unsupported for paged CSV/TSV files; clicking a column header displays an explanation in the status bar (`"Sorting is not supported for paged CSV/TSV files"`) without reordering rows or showing sort indicators.
+- **Resource limits**: Decoded table cells are bounded to 32 MiB per page with dynamic cell clamping at valid UTF-8 code point boundaries. Clamped cells are refetched asynchronously during clipboard copy up to an aggregate 64 MiB payload budget.
 
 ## Building
 
@@ -86,4 +92,3 @@ format registration, lifecycle, threading, and release-check expectations.
 
 ## TODO: 
 - control bar btn: view in Text viewer
-- pages for large file

@@ -203,7 +203,7 @@ if(BUILD_TESTS)
     list(APPEND TABLE_TEST_TARGETS test_viewer_paging)
 
     add_custom_target(run_all_tests
-        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E test_csv_large
                 $<$<BOOL:$<CONFIG>>:-C>
                 $<$<BOOL:$<CONFIG>>:$<CONFIG>>
         DEPENDS ${TABLE_TEST_TARGETS}
@@ -212,4 +212,20 @@ if(BUILD_TESTS)
         USES_TERMINAL
     )
     set_target_properties(run_all_tests PROPERTIES FOLDER "tests")
+
+    option(BUILD_CSV_LARGE_TESTS "Build large CSV performance tests" OFF)
+    if(BUILD_CSV_LARGE_TESTS)
+        add_executable(test_csv_large tests/test_csv_large.cpp)
+        target_include_directories(test_csv_large PRIVATE src/)
+        target_link_libraries(test_csv_large PRIVATE Qt6::Test Qt6::Core unofficial::sqlite3::sqlite3)
+        if(WIN32)
+            target_link_libraries(test_csv_large PRIVATE psapi)
+        endif()
+        target_sources(test_csv_large PRIVATE
+            ${CORE_SOURCES}
+            ${PARSER_SOURCES}
+        )
+        set_target_properties(test_csv_large PROPERTIES FOLDER "tests")
+        add_test(NAME test_csv_large COMMAND test_csv_large)
+    endif()
 endif()

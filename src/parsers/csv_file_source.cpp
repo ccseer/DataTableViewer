@@ -153,6 +153,17 @@ struct CsvFileSource::Impl {
             err = "Source file is not open";
             return false;
         }
+#else
+        if (!fileHandle) {
+            err = "Source file is not open";
+            return false;
+        }
+#endif
+        if (size == 0) {
+            outBytes.clear();
+            return true;
+        }
+#ifdef _WIN32
         if (size > 0xFFFFFFFFull) {
             err = "Read request exceeds the Win32 read limit";
             return false;
@@ -173,10 +184,6 @@ struct CsvFileSource::Impl {
         outBytes.resize(bytesRead);
         return true;
 #else
-        if (!fileHandle) {
-            err = "Source file is not open";
-            return false;
-        }
         outBytes.resize(size);
         if (fseek(fileHandle, static_cast<long>(offset), SEEK_SET) != 0) {
             err = "Failed to seek source file";

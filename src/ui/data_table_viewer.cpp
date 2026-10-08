@@ -742,13 +742,14 @@ void DataTableViewer::onSortClicked(int column)
     header->setSortIndicatorShown(m_sourceOrderValid && m_committedSort.has_value());
     if(m_committedSort) header->setSortIndicator(m_committedSort->column,
         m_committedSort->ascending ? Qt::AscendingOrder : Qt::DescendingOrder);
-    if(!m_canSort || !m_sourceWorker || m_recoveringSort ||
-       (m_pageFetchInFlight && !m_sorting)) {
+    if(!m_canSort) {
         if(m_isCsv && m_status) {
             m_status->setValueText(tr("Sorting is not supported for paged CSV/TSV files"));
         }
         return;
     }
+    if(!m_sourceWorker || m_recoveringSort ||
+       (m_pageFetchInFlight && !m_sorting)) return;
     auto previous = m_pendingSort ? m_pendingSort : m_committedSort;
     m_pendingSort = SortState{column, !(previous && previous->column == column && previous->ascending)};
     m_sorting = true;

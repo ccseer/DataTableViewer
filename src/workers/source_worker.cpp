@@ -219,6 +219,10 @@ void SourceWorker::indexSlice(uint64_t viewGen) {
     constexpr size_t kSliceBytes = 256 * 1024;
     auto progress = m_source->advanceIndex(kSliceBytes, cancelCheck);
 
+    if (isViewStale(viewGen)) {
+        return;
+    }
+
     if (progress.isComplete || !progress.error.empty() || !m_progressTimer.isValid() || m_progressTimer.elapsed() >= 100) {
         m_progressTimer.restart();
         emit indexProgress(viewGen, progress.indexedRows, progress.isComplete, QString::fromStdString(progress.error));

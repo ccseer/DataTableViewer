@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #endif
@@ -47,8 +48,10 @@ std::string wideToUtf8(const std::wstring &wide)
     if (size <= 0)
         return {};
     std::string utf8(static_cast<size_t>(size), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
-                        utf8.data(), size, nullptr, nullptr);
+    if (WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
+                            utf8.data(), size, nullptr, nullptr) != size) {
+        return {};
+    }
     return utf8;
 }
 
@@ -285,7 +288,7 @@ CsvRecordIndex::CsvRecordIndex() : m_impl(std::make_unique<Impl>())
 
 CsvRecordIndex::~CsvRecordIndex() = default;
 
-CsvRecordIndex::CsvRecordIndex(CsvRecordIndex &&other) noexcept
+CsvRecordIndex::CsvRecordIndex(CsvRecordIndex &&other)
     : m_impl(std::move(other.m_impl)), m_header(other.m_header), m_error(std::move(other.m_error))
 {
     other.m_impl = std::make_unique<Impl>();
@@ -293,7 +296,7 @@ CsvRecordIndex::CsvRecordIndex(CsvRecordIndex &&other) noexcept
     other.m_header = CsvIndexHeader{};
 }
 
-CsvRecordIndex &CsvRecordIndex::operator=(CsvRecordIndex &&other) noexcept
+CsvRecordIndex &CsvRecordIndex::operator=(CsvRecordIndex &&other)
 {
     if (this != &other) {
         m_impl = std::move(other.m_impl);
@@ -330,7 +333,16 @@ bool CsvRecordIndex::init()
 
 bool CsvRecordIndex::appendSpan(uint64_t start, uint64_t end)
 {
-    if (!m_impl || m_impl->failed || start > end) {
+    if (!m_impl) {
+        m_error = "Index is not initialized";
+        return false;
+    }
+    if (m_impl->failed) {
+        m_error = "Index has failed";
+        return false;
+    }
+    if (start > end) {
+        m_error = "Inverted record span";
         return false;
     }
 

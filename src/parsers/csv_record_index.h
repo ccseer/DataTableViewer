@@ -44,8 +44,10 @@ public:
     CsvRecordIndex(const CsvRecordIndex &) = delete;
     CsvRecordIndex &operator=(const CsvRecordIndex &) = delete;
 
-    CsvRecordIndex(CsvRecordIndex &&) noexcept;
-    CsvRecordIndex &operator=(CsvRecordIndex &&) noexcept;
+    // Not noexcept: the moved-from object is rebuilt in place, and that
+    // allocation would terminate instead of propagating on failure.
+    CsvRecordIndex(CsvRecordIndex &&);
+    CsvRecordIndex &operator=(CsvRecordIndex &&);
 
     // Initialize temporary index file and write default header
     bool init();

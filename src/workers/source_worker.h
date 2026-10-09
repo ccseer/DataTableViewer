@@ -3,6 +3,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QThread>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -60,6 +61,8 @@ public:
     std::shared_ptr<parsers::InterruptHandle> interruptHandle() const;
     void interrupt();
 
+    // Hooks let the unit tests force a progress, interrupt or finish point
+    // inside a single-threaded run. Production code never installs them.
     using Hook = std::function<void()>;
     void setProgressHook(Hook hook);
     void setInterruptHook(Hook hook);

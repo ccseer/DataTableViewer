@@ -24,8 +24,10 @@
 #include <QSettings>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QEvent>
 #include <QHeaderView>
 #include <QCoreApplication>
+#include <algorithm>
 
 #define qprintt qDebug() << "[DataTableViewer]"
 
@@ -51,7 +53,14 @@ DataTableViewer::DataTableViewer(QWidget *parent) : ViewerBase(parent)
 
 DataTableViewer::~DataTableViewer()
 {
+    // This viewer lives in a DLL the host may unload as soon as the last
+    // viewer instance is gone. Any background thread still executing code
+    // inside that DLL would fetch instructions from unmapped memory, so every
+    // thread has to be joined before this destructor returns. cancelPending()
+    // stops active workers asynchronously; joinBackgroundWorkers() joins all
+    // created threads and reclaims their objects.
     cancelPending();
+    joinBackgroundWorkers();
     qprintt << "~" << this;
 }
 
@@ -74,15 +83,13 @@ void DataTableViewer::init()
     m_renderer = new dtv::ui::TableRenderer(this);
     m_picker = new dtv::ui::TablePicker(this);
 
-    // 2. Setup paths and check drivers
+    // 2. Setup library paths
     const QString path = seer::getDLLPath();
     if(!path.isEmpty()) {
         QCoreApplication::addLibraryPath(path);
     } else {
         qprintt << "get DLL path failed" << path;
     }
-
-    m_sqliteAvailable = true;
 
     m_stack = new QStackedLayout;
     m_stack->addWidget(m_renderer);
@@ -185,7 +192,10 @@ void DataTableViewer::init()
     connect(m_renderer, &dtv::ui::TableRenderer::refetchRowsRequested, this,
             [this](uint64_t copyRequestId, bool isMarkdown, const auto &rowKeys) {
                 Q_UNUSED(isMarkdown);
-                if(m_sourceWorker && m_isPaged) {
+                // The generation counters exist only while a paged source is
+                // loaded; asking for clamped cells before that must fall back
+                // instead of dereferencing an empty shared_ptr.
+                if(m_sourceWorker && m_isPaged && m_viewGen) {
                     QMetaObject::invokeMethod(
                         m_sourceWorker, "refetchRows", Qt::QueuedConnection,
                         Q_ARG(uint64_t, m_viewGen->load()),
@@ -273,15 +283,19 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
 {
     init();
 
-    lay_content->setContentsMargins(0, 0, 0, 0);
-    lay_content->setSpacing(qRound(6 * m_dpr));
-    lay_content->addWidget(m_search);
-    lay_content->addLayout(m_stack, 1);
-    lay_content->addWidget(m_pageBar);
-    lay_content->addWidget(m_status);
+    if(lay_content && lay_content->indexOf(m_search) == -1) {
+        lay_content->setContentsMargins(0, 0, 0, 0);
+        lay_content->setSpacing(qRound(6 * m_dpr));
+        lay_content->addWidget(m_search);
+        lay_content->addLayout(m_stack, 1);
+        lay_content->addWidget(m_pageBar);
+        lay_content->addWidget(m_status);
+    }
 
     if(auto *slay = qobject_cast<QHBoxLayout *>(m_search->layout())) {
-        slay->insertWidget(0, m_backBtn);
+        if(slay->indexOf(m_backBtn) == -1) {
+            slay->insertWidget(0, m_backBtn);
+        }
     }
 
     // The button is created unconditionally so a viewer loaded without a
@@ -304,6 +318,13 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
     if(lay_ctrlbar && lay_ctrlbar->indexOf(m_btnTextView) == -1) {
         lay_ctrlbar->addStretch();
         lay_ctrlbar->addWidget(m_btnTextView);
+        m_btnTextView->show();
+    } else if(!lay_ctrlbar) {
+        // Without a control bar the button is a child of this viewer but is in
+        // no layout, so it would otherwise be shown at (0,0) on top of the
+        // search bar as soon as the host shows the viewer. The action stays
+        // reachable either way.
+        m_btnTextView->hide();
     }
 
     m_currentPath = options()->path();
@@ -403,10 +424,10 @@ void DataTableViewer::reapplyStyles()
                              "QPushButton:pressed { background-color: rgba(128, 128, 128, 58); }");
 
     if(m_btnTextView) {
-        constexpr int ctrlbar_btn_sz = 30;
-        constexpr int ctrlbar_btn_icon_sz = 24;
-        int iconPixelSize = qRound(ctrlbar_btn_icon_sz * m_dpr);
-        m_btnTextView->setFixedSize(qRound(ctrlbar_btn_sz * m_dpr), qRound(ctrlbar_btn_sz * m_dpr));
+        constexpr int kCtrlbarBtnSz = 30;
+        constexpr int kCtrlbarBtnIconSz = 24;
+        int iconPixelSize = qRound(kCtrlbarBtnIconSz * m_dpr);
+        m_btnTextView->setFixedSize(qRound(kCtrlbarBtnSz * m_dpr), qRound(kCtrlbarBtnSz * m_dpr));
         m_btnTextView->setIconSize(QSize(iconPixelSize, iconPixelSize));
         m_btnTextView->setIcon(createMultiStateIcon(g_svg_article, iconColor, iconPixelSize));
         m_btnTextView->setStyleSheet(QString(
@@ -417,11 +438,84 @@ void DataTableViewer::reapplyStyles()
     }
 }
 
+void DataTableViewer::trackWorker(QObject *worker, BackgroundThread *thread)
+{
+    m_workers.push_back(WorkerHandle{worker, thread});
+}
+
+void DataTableViewer::reapWorkers()
+{
+    m_workers.erase(std::remove_if(m_workers.begin(), m_workers.end(),
+                                   [](const WorkerHandle &h) {
+                                       return h.worker.isNull() && h.thread.isNull();
+                                   }),
+                    m_workers.end());
+}
+
+void DataTableViewer::joinBackgroundWorkers()
+{
+    // Phase 1: Disconnect and interrupt all workers so their destruction
+    // on the background thread cannot trigger thread->deleteLater() or
+    // notify this viewer. Tell all threads to quit.
+    for(auto &handle : m_workers) {
+        if(!handle.worker.isNull()) {
+            QObject::disconnect(handle.worker.data(), &QObject::destroyed, nullptr, nullptr);
+            handle.worker->disconnect();
+            if(auto *source = qobject_cast<dtv::workers::SourceWorker *>(handle.worker.data())) {
+                source->interrupt();
+            } else if(auto *count = qobject_cast<dtv::workers::CountWorker *>(handle.worker.data())) {
+                count->interrupt();
+            }
+        }
+        if(!handle.thread.isNull()) {
+            handle.thread->requestInterruption();
+            handle.thread->quit();
+        }
+    }
+
+    // Phase 2: Wait for all background threads to stop and join.
+    for(auto &handle : m_workers) {
+        if(!handle.thread.isNull()) {
+            handle.thread->wait();
+        }
+    }
+
+    // Phase 3: All background threads have terminated. Purge any posted
+    // deferred delete events and reclaim any surviving objects.
+    // Invariant: worker is deleted before thread so that any potential
+    // deferred deletion cascades are caught before thread disposal.
+    for(auto &handle : m_workers) {
+        if(!handle.worker.isNull()) {
+            QCoreApplication::removePostedEvents(handle.worker.data());
+            delete handle.worker.data();
+        }
+        if(!handle.thread.isNull()) {
+            QCoreApplication::removePostedEvents(handle.thread.data());
+            delete handle.thread.data();
+        }
+    }
+    m_workers.clear();
+    m_sourceWorker = nullptr;
+    m_sourceThread = nullptr;
+    m_countWorker = nullptr;
+    m_countThread = nullptr;
+}
+
 void DataTableViewer::cancelPending()
 {
     saveCurrentHeaderState();
 
     emit cancelRequested();
+
+    // Every tracked thread belongs to a load this call retires. Asking them to
+    // interrupt lets a worker stop between slices instead of finishing work
+    // whose result is already discarded.
+    for(auto &handle : m_workers) {
+        if(!handle.thread.isNull()) {
+            handle.thread->requestInterruption();
+        }
+    }
+
     m_generation++;
     if(m_viewGen) {
         m_viewGen->fetch_add(1);
@@ -461,6 +555,15 @@ void DataTableViewer::cancelPending()
     m_countFailed = false;
     m_pendingPage = 1;
     m_pendingArrivedFromPrev = false;
+    // The pager belongs to the table being retired. Keeping it would hand the
+    // next load a foreign total and suppress that load's own COUNT.
+    m_pagerState = dtv::core::PagerState{};
+    m_currentToken = dtv::core::PageToken{};
+    m_colCount = 0;
+
+    // The retired pairs above free themselves asynchronously; drop the ones
+    // that already did so the ledger cannot grow across file switches.
+    reapWorkers();
 }
 
 QSettings &DataTableViewer::ini()
@@ -534,6 +637,7 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     updateTextViewActionEnabled(!path.isEmpty());
 
     m_renderer->clear();
+    m_renderer->setStateKey({});
     m_search->clear();
     m_search->setPagedMode(false);
     m_status->showLoading();
@@ -542,12 +646,6 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
 
     QFileInfo info(path);
     qprintt << "doLoadFile:" << path << "table:" << tableName << "suffix:" << info.suffix();
-
-    if(isSqliteExtension(info.suffix()) && !m_sqliteAvailable) {
-        m_status->setValueText("Error: SQLite driver not loaded.");
-        emit sigCommand(VCT_StateChange, VCV_Error);
-        return;
-    }
 
     // Direct table request on SQLite goes to paged loader
     if(isSqliteExtension(info.suffix()) && !tableName.isEmpty()) {
@@ -568,6 +666,7 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     auto parser = dtv::core::ParserRegistry::instance().createParser(info.suffix().toStdString());
     if(!parser) {
         qprintt << "Error: No parser found for extension:" << info.suffix();
+        m_status->hideLoading();
         m_status->setValueText("No parser found for extension: " + info.suffix());
         emit sigCommand(VCT_StateChange, VCV_Error);
         return;
@@ -575,16 +674,9 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
 
     auto *thread = new BackgroundThread;
     auto *worker = new dtv::workers::TableWorker(std::move(parser), path, tableName, m_generation);
-    QPointer<dtv::workers::TableWorker> wp = worker;
 
-    connect(this, &DataTableViewer::destroyed, this, [thread, wp] {
-        if(wp)
-            thread->requestInterruption();
-    });
-    connect(this, &DataTableViewer::cancelRequested, this, [thread, wp] {
-        if(wp)
-            thread->requestInterruption();
-    });
+    // cancelPending() interrupts every tracked thread, so this path needs no
+    // per-load interruption connection.
     connect(worker, &QObject::destroyed, thread, &QObject::deleteLater);
 
     connect(thread, &QThread::started, worker, &dtv::workers::TableWorker::doParse);
@@ -596,6 +688,7 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
             });
 
     worker->moveToThread(thread);
+    trackWorker(worker, thread);
     thread->start();
 }
 
@@ -612,6 +705,7 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_pendingPage = 1;
     m_pendingArrivedFromPrev = false;
     m_renderer->clear();
+    m_renderer->setStateKey({});
     m_search->clear();
     m_status->showLoading();
     m_search->setEnabled(false);
@@ -644,12 +738,14 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_sourceWorker = new dtv::workers::SourceWorker(m_viewGen, m_opGen);
     m_sourceWorker->moveToThread(m_sourceThread);
     connect(m_sourceWorker, &QObject::destroyed, m_sourceThread, &QObject::deleteLater);
+    trackWorker(m_sourceWorker, m_sourceThread);
 
     if(!m_isCsv) {
         m_countThread = new BackgroundThread;
         m_countWorker = new dtv::workers::CountWorker(m_viewGen);
         m_countWorker->moveToThread(m_countThread);
         connect(m_countWorker, &QObject::destroyed, m_countThread, &QObject::deleteLater);
+        trackWorker(m_countWorker, m_countThread);
     }
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::indexProgress, this,
@@ -840,8 +936,14 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
 
     connect(m_sourceWorker, &dtv::workers::SourceWorker::refetchRowsCompleted, this,
             [this](uint64_t viewGen, uint64_t copyRequestId, const auto &results) {
-                if(viewGen != static_cast<uint64_t>(m_generation) || !m_isPaged)
+                if(!m_isPaged)
                     return;
+                if(viewGen != static_cast<uint64_t>(m_generation)) {
+                    // The pending copy belongs to the retired view, so it still
+                    // has to be completed here or the renderer waits forever.
+                    m_renderer->onRefetchRowsCompleted(copyRequestId, {});
+                    return;
+                }
                 m_renderer->onRefetchRowsCompleted(copyRequestId, results);
             });
 
@@ -920,6 +1022,8 @@ void DataTableViewer::onSortClicked(int column)
     if(!m_canSort) {
         if(m_isCsv && m_status) {
             m_status->setValueText(tr("Sorting is not supported for paged CSV/TSV files"));
+        } else if(!m_isCsv && m_status) {
+            m_status->setValueText(tr("Sorting is not supported for tables without a rowid"));
         }
         return;
     }
@@ -928,8 +1032,8 @@ void DataTableViewer::onSortClicked(int column)
     auto previous = m_pendingSort ? m_pendingSort : m_committedSort;
     m_pendingSort = SortState{column, !(previous && previous->column == column && previous->ascending)};
     m_sorting = true;
-    m_status->setSorting(true);
-    m_pageBar->setBusy(true);
+    if(m_status) m_status->setSorting(true);
+    if(m_pageBar) m_pageBar->setBusy(true);
     m_pageTimer.restart();
     auto opGen = m_opGen->fetch_add(1) + 1;
     auto viewGen = m_viewGen->load();
@@ -951,10 +1055,12 @@ void DataTableViewer::failSortRecovery(const QString &error)
     m_canSort = false;
     m_sorting = false;
     m_recoveringSort = false;
-    m_status->setSorting(false);
-    m_status->setValueText(tr("Sort recovery failed: %1. Re-enter the table to retry.").arg(error));
+    if(m_status) {
+        m_status->setSorting(false);
+        m_status->setValueText(tr("Sort recovery failed: %1. Re-enter the table to retry.").arg(error));
+    }
     m_renderer->horizontalHeader()->setSortIndicatorShown(false);
-    m_pageBar->setBusy(true);
+    if(m_pageBar) m_pageBar->setBusy(true);
 }
 
 void DataTableViewer::recoverSort()
@@ -988,7 +1094,7 @@ void DataTableViewer::navigatePage(int64_t targetPage, bool arrivedFromPrev,
         return;
 
     m_pageFetchInFlight = true;
-    m_pageBar->setBusy(true);
+    if(m_pageBar) m_pageBar->setBusy(true);
     m_pendingPage = targetPage;
     m_pendingArrivedFromPrev = arrivedFromPrev;
 
@@ -1052,6 +1158,7 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
 
     if(!result->ok) {
         qprintt << "Parse failed:" << QString::fromStdString(result->error);
+        m_status->hideLoading();
         m_status->setValueText("Error: " + QString::fromStdString(result->error));
         emit sigCommand(VCT_StateChange, VCV_Error);
         return;

@@ -63,10 +63,9 @@ void CountWorker::closeDb() {
         m_interruptHandle->clear();
     }
     if (m_db) {
-        sqlite3_close(m_db);
+        sqlite3_close_v2(m_db);
         m_db = nullptr;
     }
-    m_openedPath.clear();
 }
 
 void CountWorker::shutdown() {
@@ -80,7 +79,7 @@ void CountWorker::count(uint64_t viewGen, const QString &path, const QString &ta
     }
 
     std::string pathStd = path.toStdString();
-    if (!m_db || m_openedPath != pathStd) {
+    {
         closeDb();
         auto opened = parsers::openReadOnly(pathStd);
         if (!opened.db) {
@@ -90,7 +89,6 @@ void CountWorker::count(uint64_t viewGen, const QString &path, const QString &ta
             return;
         }
         m_db = opened.db;
-        m_openedPath = pathStd;
         m_interruptHandle->setDb(m_db);
     }
 

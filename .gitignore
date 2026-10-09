@@ -165,3 +165,7 @@ x86/
 .claude/*
 AGENTS.md
 CMakeUserPresets.json
+
+# Default output directory of scripts/generate_test_data.py
+data/
+ignored/*

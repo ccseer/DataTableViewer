@@ -13,10 +13,9 @@ namespace {
 
 constexpr int kInferenceSampleRows = 200;
 
-// A row may legitimately be shorter than the header: short rows are padded with
-// empty strings, and doing that eagerly for every sampled row costs copies.
-// Reading past row.size() is undefined behaviour, so this is the single place
-// that decides what a missing trailing cell means.
+// A row may legitimately be shorter than the header. Reading past row.size()
+// is undefined behaviour, so every caller that can meet a short row resolves
+// the missing trailing cell to an empty string through this helper.
 std::string_view cellAt(const std::vector<std::string> &row, size_t col)
 {
     return col < row.size() ? std::string_view(row[col]) : std::string_view();

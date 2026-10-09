@@ -42,7 +42,7 @@ SqliteOpenResult openReadOnly(const std::string &path)
     if(rc != SQLITE_OK) {
         result.error = db ? sqlite3_errmsg(db) : "Failed to open database";
         if(db)
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
         return result;
     }
 
@@ -54,20 +54,21 @@ SqliteOpenResult openReadOnly(const std::string &path)
     if(rc != SQLITE_ROW && rc != SQLITE_DONE) {
         result.error = sqlite3_errmsg(db);
         sqlite3_finalize(stmt);
-        sqlite3_close(db);
+        sqlite3_close_v2(db);
         return result;
     }
     sqlite3_finalize(stmt);
-    rc = sqlite3_exec(db, "PRAGMA cache_size = -8000; PRAGMA mmap_size = 0",
+    // temp_store = FILE keeps the server-side sort's ordinal table on disk
+    // instead of letting a large ORDER BY grow the process heap.
+    rc = sqlite3_exec(db, "PRAGMA cache_size = -8000; PRAGMA mmap_size = 0; "
+                          "PRAGMA temp_store = FILE",
                       nullptr, nullptr, nullptr);
     if(rc != SQLITE_OK) {
         result.error = sqlite3_errmsg(db);
-        sqlite3_close(db);
+        sqlite3_close_v2(db);
         return result;
     }
-    // Never bypass locking or WAL recovery after a failed normal read.
     result.db = db;
-    result.effective_name = path;
     return result;
 }
 

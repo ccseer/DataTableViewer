@@ -1,41 +1,46 @@
 #pragma once
 
 #include <QString>
+#include <QStringView>
 #include <string>
 
 namespace dtv::ui {
-inline QString singleLineDisplayText(const std::string &cell)
+// Cells may contain the line breaks of a multiline quoted CSV field; the table
+// view renders one line per row, so those are folded to single spaces. The
+// QStringView overload lets callers that already hold a QString skip the
+// std::string round-trip (an allocation plus a UTF-8 conversion on both ends).
+inline QString singleLineDisplayText(QStringView text)
 {
-    bool hasLineBreak = false;
-    for(char ch : cell) {
-        if(ch == '\r' || ch == '\n') {
-            hasLineBreak = true;
-            break;
-        }
-    }
+    if(!text.contains(QChar('\r')) && !text.contains(QChar('\n')))
+        return text.toString();
 
-    if(!hasLineBreak) {
-        return QString::fromStdString(cell);
-    }
-
-    const QString original = QString::fromStdString(cell);
-    QString text;
-    text.reserve(original.size());
+    QString out;
+    out.reserve(text.size());
     bool previousWasNewline = false;
 
-    for(QChar ch : original) {
+    for(const QChar ch : text) {
         if(ch == QLatin1Char('\r') || ch == QLatin1Char('\n')) {
             if(!previousWasNewline) {
-                text += QLatin1Char(' ');
+                out += QLatin1Char(' ');
                 previousWasNewline = true;
             }
             continue;
         }
-        text += ch;
+        out += ch;
         previousWasNewline = false;
     }
 
-    return text;
+    return out;
+}
+
+inline QString singleLineDisplayText(const QString &text)
+{
+    return singleLineDisplayText(QStringView(text));
+}
+
+inline QString singleLineDisplayText(const std::string &cell)
+{
+    return singleLineDisplayText(QString::fromStdString(cell));
 }
 
 } // namespace dtv::ui

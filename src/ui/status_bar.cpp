@@ -57,8 +57,6 @@ StatusBar::StatusBar(QWidget *parent) : QWidget(parent)
 
     m_progress = new QProgressBar(this);
     m_progress->setRange(0, 0);
-    m_progress->setMaximumWidth(80);
-    m_progress->setMaximumHeight(12);
     m_progress->hide();
     layout->addWidget(m_progress);
 
@@ -243,21 +241,30 @@ void StatusBar::rebuildPagedTexts()
                         .arg(m_lastRow)
                         .arg(totalStr)
                         .arg(m_colCount);
+
+    // The summary and tooltip were just rebuilt without the warning, so the
+    // next setWarning() has to be allowed to fold it back in.
+    m_appliedWarning.clear();
 }
 
 void StatusBar::setWarning(const QString &warning)
 {
-    if(warning.isEmpty())
+    if(warning.isEmpty() || warning == m_appliedWarning)
         return;
 
+    // The text this warning is folded into is rebuilt from scratch by
+    // rebuildPagedTexts(), so a new warning replaces the previous one instead
+    // of stacking on top of it. Reapplying the stored indexing error on every
+    // page turn must not grow the summary or the tooltip.
+    const QString oldSummary = m_summaryText;
+    m_appliedWarning = warning;
     QString warnText = QString("  (Warning: %1)").arg(warning);
     m_summaryText += warnText;
     m_tooltipLines += "\n" + warnText;
     m_info->setToolTip(m_tooltipLines);
 
     // If we are currently showing the summary (no selection), update it immediately
-    if(m_currentValueText.isEmpty() ||
-       m_currentValueText == m_summaryText.left(m_summaryText.length() - warnText.length())) {
+    if(m_currentValueText.isEmpty() || m_currentValueText == oldSummary) {
         setValueText(m_summaryText);
     }
 }
@@ -309,21 +316,39 @@ QString StatusBar::text() const
     return m_valueLabel->text();
 }
 
-void StatusBar::showLoading()
+void StatusBar::resetLoadInfo()
 {
     m_indexing = false;
     m_indexingText.clear();
     m_indexingError.clear();
     m_summaryText.clear();
     m_tooltipLines.clear();
+    m_appliedWarning.clear();
     m_hasLoadInfo = false;
     m_filterActive = false;
+    m_pagedTotal.reset();
+    m_firstRow = 0;
+    m_lastRow = 0;
+    m_colCount = 0;
+    m_fileBytes = 0;
+    m_elapsedMs = 0;
+    m_formatName.clear();
+    m_libraryCredit.clear();
+}
+
+void StatusBar::showLoading()
+{
+    resetLoadInfo();
     m_info->setPixmap(QPixmap());
     m_info->setText("Loading...");
     m_info->setToolTip("DataTableViewer");
     setValueText({});
-    m_pagedTotal.reset();
     m_progress->show();
+}
+
+void StatusBar::hideLoading()
+{
+    m_progress->hide();
 }
 
 void StatusBar::restoreInfo()
@@ -351,11 +376,13 @@ void StatusBar::restoreInfo()
 
 void StatusBar::updateTheme(bool dark, qreal dpr)
 {
-    m_isDarkMode = dark;
+    Q_UNUSED(dark);
     m_dpr = dpr;
     setFixedHeight(qRound(26 * m_dpr));
     const int infoBox = qRound(24 * m_dpr);
     m_info->setFixedSize(infoBox, infoBox);
+    m_progress->setMaximumWidth(qRound(80 * m_dpr));
+    m_progress->setMaximumHeight(qRound(12 * m_dpr));
     if(auto *lay = qobject_cast<QHBoxLayout *>(layout()))
         lay->setContentsMargins(qRound(12 * m_dpr), 0, qRound(12 * m_dpr), 0);
     if(m_hasLoadInfo)
@@ -370,13 +397,7 @@ void StatusBar::setSorting(bool sorting)
 void StatusBar::clear()
 {
     setSorting(false);
-    m_indexing = false;
-    m_indexingText.clear();
-    m_indexingError.clear();
-    m_summaryText.clear();
-    m_tooltipLines.clear();
-    m_hasLoadInfo = false;
-    m_filterActive = false;
+    resetLoadInfo();
     m_info->setPixmap(QPixmap());
     m_info->clear();
     m_info->setToolTip("DataTableViewer");

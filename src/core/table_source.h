@@ -46,6 +46,15 @@ struct RefetchResult {
 // payload must never reach the clipboard.
 inline constexpr std::size_t kMaxCopyBudgetBytes = 64 * 1024 * 1024;
 inline constexpr char kCopyBudgetExceededError[] = "Copy budget exceeded (64 MiB)";
+// Single spelling for cooperative cancellation. The worker recognizes a
+// cancelled result by string, so a source reporting any other wording silently
+// drops out of the interrupt/retry contract. "interrupted" is what SQLite puts
+// in errmsg() after sqlite3_interrupt(), so both spellings are part of it.
+inline constexpr char kCancelledError[] = "Cancelled";
+inline constexpr char kInterruptedError[] = "interrupted";
+inline bool isCancellationError(const std::string &error) {
+    return error == kCancelledError || error == kInterruptedError;
+}
 enum class IndexReadiness {
     Ready,
     Pending,

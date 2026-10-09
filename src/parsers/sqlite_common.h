@@ -52,9 +52,6 @@ private:
 
 struct SqliteOpenResult {
     sqlite3 *db = nullptr;
-    bool uri_mode = false;
-    bool immutable = false;
-    std::string effective_name;
     std::string error;
 };
 

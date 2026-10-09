@@ -45,7 +45,7 @@ At open time, the source probes `rowid`, `_rowid_`, and `oid` as **bare identifi
 - Under SQLite's default Double-Quoted String misfeature (DQS 3), double-quoting an unresolved identifier silently degrades into a string literal (`"_rowid_"` returns a constant string on `WITHOUT ROWID` tables).
 - Bare identifiers fail loudly if unresolved, guaranteeing safe detection.
 - Probed aliases are verified against user column names (case-insensitive) to prevent shadowing.
-- `WITHOUT ROWID` tables and virtual tables lacking row identity fall back to forward-only or standard offset paging with server-side sorting disabled.
+- `WITHOUT ROWID` tables and virtual tables lacking row identity fall back to forward-only or standard offset paging with server-side sorting disabled. Offset paging orders by the declared primary key when one exists: without an `ORDER BY`, SQLite may return rows in query-plan order and silently duplicate or skip rows across pages.
 
 ### 2.4 Server-Side Sorting via Temp Ordinal Table
 1. **Deterministic Order:** Created via temporary table on first sort:
@@ -53,7 +53,8 @@ At open time, the source probes `rowid`, `_rowid_`, and `oid` as **bare identifi
    `INSERT INTO dtv_ord_<seq> (ord, rid) SELECT ROW_NUMBER() OVER (ORDER BY "col" [ASC|DESC], rid [ASC|DESC]), rid FROM main."table";`
 2. **Tie-Breaker:** Rowid acts as deterministic tie-breaker for identical values.
 3. **Paging via Range Join:** Subsequent sorted page turns perform exact ordinal index range lookups joined against main table:
-   `FROM dtv_ord o CROSS JOIN main."table" m ON m.rowid = o.rid WHERE o.ord BETWEEN :start AND :end`
+   `FROM dtv_ord_<seq> o CROSS JOIN main."table" m ON m.<rowid alias> = o.rid WHERE o.ord BETWEEN :start AND :end`
+   (`<rowid alias>` is the identifier resolved in 2.3: `rowid`, `_rowid_`, or `oid`.)
 4. **Zero-Cost Total Count:** `sqlite3_changes64()` immediately yields authoritative total rows, enabling the last-page button without waiting for `COUNT(*)`.
 
 ---
@@ -72,7 +73,7 @@ Supersedes legacy in-memory `TableWorker` parsing and eliminates all 64 MiB and 
 - **Structure:** 64-byte `CsvIndexHeader` followed by dense, contiguous 16-byte `CsvRecordSpan` entries (`uint64_t start`, `uint64_t end`).
 - **Memory Footprint:**
   - RAM Cache: First 65,536 spans cached directly in memory (1 MiB budget).
-  - Sliding Block Cache: 65,536-span block cache for subsequent ordinals.
+  - Sliding Block Cache: 2,048-span block cache (32 KiB per disk read) for subsequent ordinals.
   - Spans beyond RAM are streamed directly to disk via buffered block writes.
 - **Crash-Safe File Isolation:** Index files are written to a per-process private temp directory (`dtv_idx_<pid>_<salt>`) using Win32 `CREATE_NEW`, `FILE_ATTRIBUTE_TEMPORARY`, and `FILE_FLAG_DELETE_ON_CLOSE` for immediate OS-level reclamation upon process termination.
 

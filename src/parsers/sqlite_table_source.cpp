@@ -94,6 +94,9 @@ core::PageResult failure(const std::string &error) {
     result.error = error;
     return result;
 }
+core::PageResult cancelledResult() {
+    return failure(core::kCancelledError);
+}
 bool validSize(int size) {
     return size > 0 && size <= 3000;
 }
@@ -118,7 +121,7 @@ struct SqliteTableSource::Impl {
         if(interruptHandle)
             interruptHandle->clear();
         if(db)
-            sqlite3_close(db);
+            sqlite3_close_v2(db);
     }
     static int progress(void *p) {
         auto &self = *static_cast<Impl *>(p);
@@ -149,7 +152,7 @@ struct SqliteTableSource::Impl {
         if(!db || !validSize(size))
             return failure("Invalid source or page size");
         if(cancelled())
-            return failure("Cancelled");
+            return cancelledResult();
         const bool reverse = direction == -1 || direction == 2;
         const bool sorted = !orderTable.empty();
         int64_t offset = 0;
@@ -197,6 +200,18 @@ struct SqliteTableSource::Impl {
                 offset = std::max<int64_t>(0, anchor.offset - size);
             if(direction == 2)
                 offset = *total - lastSize;
+            // Without an ORDER BY, SQLite is free to return the rows in any
+            // query-plan order, which makes LIMIT/OFFSET paging duplicate or
+            // skip rows. The primary key supplies a stable order for free on a
+            // WITHOUT ROWID table; a view without one keeps the raw plan order.
+            if(!primaryKey.empty()) {
+                sql += " ORDER BY ";
+                for(size_t i = 0; i < primaryKey.size(); ++i) {
+                    if(i)
+                        sql += ", ";
+                    sql += quoted(primaryKey[i].second);
+                }
+            }
         }
         sql += " LIMIT " + std::to_string(limit);
         if(rowid.empty())
@@ -216,7 +231,7 @@ struct SqliteTableSource::Impl {
         int rc;
         while((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
             if(cancelled())
-                return failure("Cancelled");
+                return cancelledResult();
             if(data->rows.size() == static_cast<size_t>(size)) {
                 result.hasMore = true;
                 break;
@@ -234,7 +249,10 @@ struct SqliteTableSource::Impl {
                 if(columns[col].type == core::ColumnMeta::Type::Integer ||
                    columns[col].type == core::ColumnMeta::Type::Float) {
                     if(storageType == SQLITE_TEXT) {
-                        const auto &text = row.back();
+                        std::string_view text = row.back();
+                        if(!text.empty() && text.front() == '+') {
+                            text.remove_prefix(1);
+                        }
                         double parsed;
                         const auto conversion =
                             std::from_chars(text.data(), text.data() + text.size(), parsed);
@@ -312,21 +330,21 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
             if(!success && impl.db) {
                 if(impl.interruptHandle)
                     impl.interruptHandle->clear();
-                sqlite3_close(impl.db);
+                sqlite3_close_v2(impl.db);
                 impl.db = nullptr;
             }
         }
     } cleanupGuard{s, success};
 
     if(s.cancelled()) {
-        s.error = "Cancelled";
+        s.error = core::kCancelledError;
         return false;
     }
 
     auto metadata = s.prepare("SELECT * FROM main." + quoted(table) + " LIMIT 0");
     if(!metadata || s.cancelled()) {
         if(s.cancelled())
-            s.error = "Cancelled";
+            s.error = core::kCancelledError;
         return false;
     }
     const int count = sqlite3_column_count(metadata.get());
@@ -336,7 +354,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
     metadata.reset();
     for(const char *alias : {"rowid", "_rowid_", "oid"}) {
         if(s.cancelled()) {
-            s.error = "Cancelled";
+            s.error = core::kCancelledError;
             return false;
         }
         const bool shadowed = std::any_of(s.columns.begin(), s.columns.end(), [&](const auto &col) {
@@ -359,14 +377,14 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
         }
     }
     if(s.cancelled()) {
-        s.error = "Cancelled";
+        s.error = core::kCancelledError;
         return false;
     }
     if(s.rowid.empty()) {
         auto info = s.prepare("PRAGMA main.table_xinfo(" + quoted(table) + ")");
         if(!info || s.cancelled()) {
             if(s.cancelled())
-                s.error = "Cancelled";
+                s.error = core::kCancelledError;
             return false;
         }
         std::vector<std::pair<int, std::string>> ordered;
@@ -374,7 +392,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
         int rc;
         while((rc = sqlite3_step(info.get())) == SQLITE_ROW) {
             if(s.cancelled()) {
-                s.error = "Cancelled";
+                s.error = core::kCancelledError;
                 return false;
             }
             const int pk = sqlite3_column_int(info.get(), 5);
@@ -390,7 +408,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
             }
         }
         if(rc != SQLITE_DONE) {
-            s.error = s.cancelled() ? "Cancelled" : sqlite3_errmsg(s.db);
+            s.error = s.cancelled() ? core::kCancelledError : sqlite3_errmsg(s.db);
             return false;
         }
         // Ordinary SQLite primary keys can contain duplicate NULL tuples.
@@ -399,7 +417,7 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
         std::sort(ordered.begin(), ordered.end());
         for(const auto &pk : ordered) {
             auto col = std::find_if(s.columns.begin(), s.columns.end(), [&](const auto &c) {
-                return c.name == pk.second;
+                return asciiLower(c.name) == asciiLower(pk.second);
             });
             if(col != s.columns.end())
                 s.primaryKey.emplace_back(static_cast<int>(col - s.columns.begin()), pk.second);
@@ -475,7 +493,7 @@ bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck ca
         s.installProgress();
     };
     if(s.cancelled()) {
-        s.error = "Cancelled";
+        s.error = core::kCancelledError;
         restore();
         return false;
     }
@@ -495,7 +513,7 @@ bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck ca
     }
     const bool cancelled = s.cancelled();
     if(rc != SQLITE_OK || cancelled) {
-        s.error = cancelled ? "Cancelled" : sqlite3_errmsg(s.db);
+        s.error = cancelled ? core::kCancelledError : sqlite3_errmsg(s.db);
         sqlite3_progress_handler(s.db, 0, nullptr, nullptr);
         const auto drop = "DROP TABLE IF EXISTS temp." + quoted(staging);
         sqlite3_exec(s.db, drop.c_str(), nullptr, nullptr, nullptr);
@@ -517,8 +535,15 @@ bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck ca
 core::RefetchResult SqliteTableSource::refetch(const core::RefetchKey &key) {
     auto &s = *m_impl;
     core::RefetchResult result;
-    if(!s.db || s.cancelled()) {
-        result.error = "Unavailable or cancelled";
+    // Split the two conditions: the worker recognizes cancellation by the
+    // shared constant, so folding "no connection" into the same string would
+    // put a permanent failure on the retry contract's cancellation path.
+    if(!s.db) {
+        result.error = "Source is not open";
+        return result;
+    }
+    if(s.cancelled()) {
+        result.error = core::kCancelledError;
         return result;
     }
     std::string sql = "SELECT * FROM main." + quoted(s.table) + " WHERE ";

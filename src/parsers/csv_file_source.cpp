@@ -24,6 +24,12 @@ namespace {
 constexpr size_t kMaxSampleRows = 200;
 constexpr size_t kMaxSampleCellBytes = 64;
 constexpr size_t kMaxHeaderNameBytes = 4096;
+// The row and byte budgets below are gated on the header already having been
+// read, because their job is to bound the *sample*. Without a separate bound
+// for the header search itself, a first record that never terminates inside
+// the window keeps the loop alive until EOF and open() degrades into a full
+// synchronous scan of the file.
+constexpr size_t kMaxHeaderScanBytes = 2 * 1024 * 1024;
 // A zero-byte slice budget never advances the scan, so a worker looping while
 // the index is incomplete would spin forever. Floor the slice instead.
 constexpr size_t kMinSliceBytes = 4096;
@@ -185,7 +191,9 @@ struct CsvFileSource::Impl {
         return true;
 #else
         outBytes.resize(size);
-        if (fseek(fileHandle, static_cast<long>(offset), SEEK_SET) != 0) {
+        // fseeko/off_t: long is 32-bit on LP32/Win32-ILP32 targets, where a
+        // plain fseek() cannot address a record past 2 GiB.
+        if (fseeko(fileHandle, static_cast<off_t>(offset), SEEK_SET) != 0) {
             err = "Failed to seek source file";
             return false;
         }
@@ -310,8 +318,11 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
         return false;
     }
     std::wstring wpath(static_cast<size_t>(wideLen), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()),
-                        wpath.data(), wideLen);
+    if (MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()),
+                            wpath.data(), wideLen) != wideLen) {
+        m_error = "Invalid file path encoding";
+        return false;
+    }
     m_impl->fileHandle = CreateFileW(
         wpath.c_str(),
         GENERIC_READ,
@@ -461,6 +472,14 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
             return false;
         }
 
+        if (!m_impl->hasScannedHeader && m_impl->scanOffset >= kMaxHeaderScanBytes) {
+            // Nothing to sample against and no schema to freeze: the file is
+            // either not delimited text or its first record is unbounded. Stop
+            // here rather than reading the rest of it inside open().
+            m_error = "No complete header record found within the initial scan window";
+            return false;
+        }
+
         if (m_impl->hasScannedHeader && (m_impl->sampleData.rows.size() >= kMaxSampleRows || isEof || m_impl->scanOffset >= kMaxSampleScanBytes)) {
             break;
         }
@@ -552,6 +571,8 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
 
     if (!m_impl->indexScanner) {
         progress.error = "Source is not open";
+        progress.indexedRows = m_impl->index.dataRecordCount();
+        progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
     if (m_impl->scanFailed) {
@@ -576,6 +597,8 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     if (!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, err)) {
         m_impl->scanFailed = true;
         progress.error = err;
+        progress.indexedRows = m_impl->index.dataRecordCount();
+        progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
 
@@ -637,7 +660,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
     }
 
     if (m_impl->cancelCheck && m_impl->cancelCheck()) {
-        result.error = "Cancelled";
+        result.error = core::kCancelledError;
         return result;
     }
 
@@ -723,7 +746,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
     std::string rawRecord; // Reused across rows so its capacity survives.
     for (size_t rowIdx = 0; rowIdx < spans.size(); ++rowIdx) {
         if (m_impl->cancelCheck && m_impl->cancelCheck()) {
-            result.error = "Cancelled";
+            result.error = core::kCancelledError;
             return result;
         }
 
@@ -742,7 +765,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
 
         if (!rowScanner.feed(rawRecord, span.start, true, m_impl->cancelCheck)) {
             result.ok = false;
-            result.error = "Cancelled";
+            result.error = core::kCancelledError;
             return result;
         }
         rowScanner.reset();
@@ -751,6 +774,14 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
         while (rowValues.size() < colCount) {
             rowValues.push_back("");
             rowClamped.push_back(false);
+        }
+
+        // A record with more fields than the header would leave the surplus
+        // cells attached, making TableData::rows ragged. The frozen schema is
+        // the authority, so drop them.
+        if (rowValues.size() > colCount) {
+            rowValues.resize(colCount);
+            rowClamped.resize(colCount);
         }
 
         // Numeric cache population
@@ -862,7 +893,7 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
     }
 
     if (m_impl->cancelCheck && m_impl->cancelCheck()) {
-        result.error = "Cancelled";
+        result.error = core::kCancelledError;
         return result;
     }
 
@@ -908,7 +939,7 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
     };
     if (!scanner.feed(rawRecord, span->start, true, cancelRefetch)) {
         result.ok = false;
-        result.error = budgetExceeded ? core::kCopyBudgetExceededError : "Cancelled";
+        result.error = budgetExceeded ? core::kCopyBudgetExceededError : core::kCancelledError;
         return result;
     }
 

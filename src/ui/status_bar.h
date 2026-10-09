@@ -29,6 +29,7 @@ public:
     void setValueText(const QString &text);
     QString text() const;
     void showLoading();
+    void hideLoading();
     void restoreInfo();
     void updateTheme(bool dark, qreal dpr);
     void clear();
@@ -41,13 +42,13 @@ private:
     void repaintInfoIcon();
     void updateDisplay();
     void rebuildPagedTexts();
+    void resetLoadInfo();
 
     QLabel *m_valueLabel = nullptr;
     QLabel *m_info = nullptr;
     QLabel *m_sorting = nullptr;
     QProgressBar *m_progress = nullptr;
 
-    bool m_isDarkMode = false;
     qreal m_dpr = 1.0;
     QString m_summaryText;
     QString m_currentValueText;
@@ -57,6 +58,10 @@ private:
     bool m_indexing = false;
     QString m_indexingText;
     QString m_indexingError;
+    // Last warning already folded into m_summaryText/m_tooltipLines. Applying
+    // the same warning twice would append a second copy, so the repeat is
+    // skipped; clearing it happens with the text it belongs to.
+    QString m_appliedWarning;
 
     bool m_pagedMode = false;
     int64_t m_firstRow = 0;

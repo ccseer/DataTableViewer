@@ -51,6 +51,9 @@ private slots:
     void testStatusBarRowIndexMetrics();
     void testPagingShortcutsAndTooltips();
     void testContentSizingAndPropertyBounds();
+    void testRepeatedIndexingErrorDoesNotAccumulate();
+    void testViewerDestructionJoinsActiveWorkers();
+    void testCopyBudgetDirectPathAccuracy();
 
 private:
     std::unique_ptr<QTemporaryDir> m_tempDir;
@@ -1000,6 +1003,7 @@ void TestViewerPaging::testTextViewControlBarButton() {
         ViewOptions opts;
         opts.d_ptr = &optsPriv;
 
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(&ctrlbarLayout, &opts);
 
         QVERIFY(viewer.m_btnTextView != nullptr);
@@ -1049,6 +1053,7 @@ void TestViewerPaging::testTextViewControlBarButton() {
         ViewOptions opts;
         opts.d_ptr = &optsPriv;
 
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(&ctrlbarLayout, &opts);
 
         QVERIFY(viewer.m_btnTextView != nullptr);
@@ -1107,12 +1112,20 @@ void TestViewerPaging::testTextViewControlBarButton() {
         ViewOptions opts;
         opts.d_ptr = &optsPriv;
 
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(nullptr, &opts);
+        // Without show() the button is hidden by construction, so the
+        // assertion below would pass even if the code stopped hiding it.
+        viewer.show();
 
         // Created unconditionally, merely not attached to a layout.
         QVERIFY(viewer.m_btnTextView != nullptr);
         QCOMPARE(viewer.m_btnTextView->parentWidget(), static_cast<QWidget *>(&viewer));
         QVERIFY(viewer.m_btnTextView->isEnabled());
+        // It is in no layout, so it must stay hidden: otherwise the host
+        // showing the viewer would paint a 30x30 button at (0,0) over the
+        // search bar.
+        QVERIFY(!viewer.m_btnTextView->isVisible());
 
         QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
         viewer.onTextViewBtnClicked();
@@ -1136,6 +1149,7 @@ void TestViewerPaging::testTextViewControlBarButton() {
         ViewOptions opts;
         opts.d_ptr = &optsPriv;
 
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(nullptr, &opts);
 
         QVERIFY(viewer.m_btnTextView != nullptr);
@@ -1175,11 +1189,13 @@ void TestViewerPaging::testTextViewControlBarButton() {
         ViewOptions opts;
         opts.d_ptr = &optsPriv;
 
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(&ctrlbarLayout, &opts);
         QVERIFY(viewer.m_btnTextView != nullptr);
 
+        // The deleted button must not be touched again when the theme or DPR
+        // changes: that is the behaviour under test, not the QPointer reset.
         delete viewer.m_btnTextView.data();
-        QVERIFY(viewer.m_btnTextView == nullptr);
 
         viewer.updateDPR(1.5);
         viewer.updateTheme(0);
@@ -1485,6 +1501,7 @@ void TestViewerPaging::testContentSizingAndPropertyBounds() {
         opts.d_ptr = &optsPriv;
 
         QHBoxLayout ctrlbarLayout;
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(&ctrlbarLayout, &opts);
 
         QCOMPARE(viewer.minimumSize(), QSize(400, 300));
@@ -1502,10 +1519,111 @@ void TestViewerPaging::testContentSizingAndPropertyBounds() {
         opts.d_ptr = &optsPriv;
 
         QHBoxLayout ctrlbarLayout;
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
         viewer.load(&ctrlbarLayout, &opts);
 
         QCOMPARE(viewer.minimumSize(), QSize(0, 0));
     }
+}
+
+void TestViewerPaging::testRepeatedIndexingErrorDoesNotAccumulate()
+{
+    // setPagedLoadInfo() re-applies a stored indexing error on every page turn,
+    // and setIndexingFailed() can be re-reported by the worker. Neither may
+    // append a second copy of the same warning to the summary or the tooltip.
+    dtv::ui::StatusBar bar;
+    bar.setPagedMode(true);
+    bar.showLoading();
+    bar.setPagedLoadInfo(1, 500, std::nullopt, 3, 4096, 15, "CSV", "(built-in RFC 4180 parser)");
+    bar.setIndexingFailed("Corrupt record at offset 1024");
+
+    const QString afterFirst = bar.text();
+    const int firstCount = afterFirst.count("Warning:");
+
+    // A page turn re-applies the same stored error through setPagedLoadInfo.
+    bar.setPagedLoadInfo(501, 1000, std::nullopt, 3, 4096, 18, "CSV", "(built-in RFC 4180 parser)");
+    QCOMPARE(bar.text().count("Warning:"), firstCount);
+    QCOMPARE(bar.text().count("Corrupt record"), 1);
+
+    // A direct re-report of the same error must also be idempotent.
+    bar.setIndexingFailed("Corrupt record at offset 1024");
+    QCOMPARE(bar.text().count("Warning:"), firstCount);
+    QCOMPARE(bar.text().count("Corrupt record"), 1);
+
+    // A different error still lands, and still only once.
+    bar.setIndexingFailed("Corrupt record at offset 2048");
+    QCOMPARE(bar.text().count("Corrupt record at offset 2048"), 1);
+
+    // showLoading() drops the warning entirely rather than carrying it forward.
+    bar.showLoading();
+    QVERIFY(!bar.text().contains("Warning:"));
+}
+
+void TestViewerPaging::testViewerDestructionJoinsActiveWorkers()
+{
+    // Test that destroying a viewer while background workers are actively
+    // running or starting joins the threads cleanly without crashing or double-free.
+    {
+        auto viewer = std::make_unique<DataTableViewer>();
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(*viewer, m_1mDbPath, optsPriv, opts);
+        viewer->loadSelectedTable(m_1mDbPath, "items");
+        // Destroy the viewer immediately while workers/threads are in-flight
+        viewer.reset();
+    }
+    // Also test with a viewer that is navigated mid-flight
+    {
+        auto viewer = std::make_unique<DataTableViewer>();
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(*viewer, m_1mDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer->m_stack->currentWidget() == viewer->m_picker, 5000);
+        viewer->loadSelectedTable(m_1mDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer->m_stack->currentWidget() == viewer->m_renderer, 3000);
+        // Trigger a page navigation
+        viewer->onNextPageClicked();
+        // Destroy while page query is in-flight
+        viewer.reset();
+    }
+}
+
+void TestViewerPaging::testCopyBudgetDirectPathAccuracy()
+{
+    dtv::ui::TableRenderer renderer;
+    auto data = std::make_shared<dtv::core::TableData>();
+    data->columns.push_back({"col1", dtv::core::ColumnMeta::Type::String});
+
+    // Case 1: An ASCII cell that is 25 MB in size.
+    // Under the old heuristic (size * 3 + 1), 25 MB was estimated as 75 MB and rejected (> 64 MB).
+    // Under the accurate utf8ByteCount metric, 25 MB is 25 MB (< 64 MB), so direct copy succeeds!
+    std::string text25MB(25 * 1024 * 1024, 'x');
+    data->rows.push_back({text25MB});
+    dtv::core::RefetchKey key;
+    key.rowid = 1;
+    renderer.setPageData(data, {key}, {{false}});
+
+    QSignalSpy incompleteSpy(&renderer, SIGNAL(copyRefetchIncomplete(int)));
+    renderer.selectCell(0, 0);
+    renderer.copyToClipboard();
+
+    // Must NOT be refused
+    QCOMPARE(incompleteSpy.count(), 0);
+    QCOMPARE(QGuiApplication::clipboard()->text().size(), static_cast<int>(text25MB.size()));
+
+    // Case 2: An oversized cell exceeding 64 MiB (e.g., 65 MiB)
+    std::string text65MB(65 * 1024 * 1024, 'y');
+    data->rows[0] = {text65MB};
+    renderer.setPageData(data, {key}, {{false}});
+
+    QGuiApplication::clipboard()->clear();
+    renderer.selectCell(0, 0);
+    renderer.copyToClipboard();
+
+    // Must be rejected with incomplete (-1) and clipboard remains empty
+    QCOMPARE(incompleteSpy.count(), 1);
+    QCOMPARE(incompleteSpy.last().at(0).toInt(), -1);
+    QVERIFY(QGuiApplication::clipboard()->text().isEmpty());
 }
 
 QTEST_MAIN(TestViewerPaging)

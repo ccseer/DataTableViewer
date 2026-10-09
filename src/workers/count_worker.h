@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QThread>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -24,6 +25,8 @@ public:
     std::shared_ptr<parsers::InterruptHandle> interruptHandle() const;
     void interrupt();
 
+    // Hooks let the unit tests force a progress, interrupt or finish point
+    // inside a single-threaded run. Production code never installs them.
     using Hook = std::function<void()>;
     void setProgressHook(Hook hook);
     void setInterruptHook(Hook hook);
@@ -43,7 +46,6 @@ private:
     std::shared_ptr<std::atomic<uint64_t>> m_viewGen;
     std::shared_ptr<parsers::InterruptHandle> m_interruptHandle;
     sqlite3 *m_db = nullptr;
-    std::string m_openedPath;
     Hook m_progressHook;
     Hook m_interruptHook;
     Hook m_finishHook;

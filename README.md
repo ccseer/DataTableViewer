@@ -121,3 +121,7 @@ DataTableViewer.pageLast=Ctrl+End
 
 Operational project rules live in [AGENTS.md](AGENTS.md). Use it for architecture,
 format registration, lifecycle, threading, and release-check expectations.
+
+`scripts/generate_test_data.py` is a manual developer tool: it writes the large
+CSV and SQLite fixtures used for paging benchmarks. Run it by hand; it is not
+wired into the build or the test suite.

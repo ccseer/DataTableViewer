@@ -21,7 +21,6 @@ private slots:
             sqlite3_close(opened.db);
         QVERIFY(rejected);
         QVERIFY(!opened.error.empty());
-        QVERIFY(!opened.immutable);
     }
 
     void testNativePaths_data()
@@ -49,9 +48,6 @@ private slots:
         auto opened = dtv::parsers::openReadOnly(path);
         QVERIFY2(opened.db, opened.error.c_str());
         sqlite3_close(opened.db);
-        QVERIFY(!opened.uri_mode);
-        QVERIFY(!opened.immutable);
-        QCOMPARE(opened.effective_name, path);
     }
 
     void testMissingFileNoFallback()
@@ -62,18 +58,18 @@ private slots:
         auto opened = dtv::parsers::openReadOnly(path.toUtf8().toStdString());
         QVERIFY(!opened.db);
         QVERIFY(!opened.error.empty());
-        QVERIFY(!opened.immutable);
         QVERIFY(!QFile::exists(path));
     }
 
     void testBasicParse()
     {
-        const char *path = "test_parser.sqlite";
-        QFile::remove(path); // Ensure a fresh start [P2]
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const std::string path = dir.filePath("test_parser.sqlite").toUtf8().toStdString();
 
         {
             sqlite3 *db = nullptr;
-            QCOMPARE(sqlite3_open(path, &db), SQLITE_OK);
+            QCOMPARE(sqlite3_open(path.c_str(), &db), SQLITE_OK);
             QCOMPARE(sqlite3_exec(db, "CREATE TABLE items (id INTEGER, val TEXT)", nullptr, nullptr,
                                   nullptr),
                      SQLITE_OK);
@@ -95,8 +91,6 @@ private slots:
         QVERIFY(result.data == nullptr);
         QCOMPARE(result.table_names.size(), 1ull);
         QCOMPARE(result.table_names[0], std::string("items"));
-
-        QFile::remove(path);
     }
 
     void testInvalidFile()

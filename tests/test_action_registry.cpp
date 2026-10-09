@@ -275,7 +275,9 @@ private slots:
         {
             QFile file(iniPath);
             QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
-            file.write("[Shortcuts]\nDataTableViewer.find=Ctrl+F\n");
+            // Deliberately different from the compiled default: a value equal
+            // to the default could not tell a loaded shortcut from a fallback.
+            file.write("[Shortcuts]\nDataTableViewer.find=Ctrl+Shift+F\n");
             file.close();
             QVERIFY(file.setPermissions(QFileDevice::ReadOwner | QFileDevice::ReadUser));
         }
@@ -289,15 +291,15 @@ private slots:
         QAction *findAct = registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
         QAction *copyAct = registry.registerAction("DataTableViewer.copy", "Copy", QKeySequence::Copy);
 
-        QCOMPARE(findAct->shortcut(), QKeySequence(QKeySequence::Find));
+        QCOMPARE(findAct->shortcut(), QKeySequence("Ctrl+Shift+F"));
         QCOMPARE(copyAct->shortcut(), QKeySequence(QKeySequence::Copy));
 
         // Attempting to save missing defaults to read-only settings must not crash
-        // or mutate in-memory shortcuts away from compiled defaults.
+        // or mutate in-memory shortcuts away from the values that are in use.
         registry.saveDefaultsIfMissing(settings);
         settings.sync();
 
-        QCOMPARE(registry.shortcut("DataTableViewer.find"), QKeySequence(QKeySequence::Find));
+        QCOMPARE(registry.shortcut("DataTableViewer.find"), QKeySequence("Ctrl+Shift+F"));
         QCOMPARE(registry.shortcut("DataTableViewer.copy"), QKeySequence(QKeySequence::Copy));
 
         // Restore write permissions so cleanup succeeds

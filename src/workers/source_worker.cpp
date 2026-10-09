@@ -201,7 +201,8 @@ void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::w
 }
 
 void SourceWorker::indexSlice(uint64_t viewGen) {
-    if (isViewStale(viewGen) || !m_source || !m_source->isIndexable()) {
+    if (isViewStale(viewGen) || !m_source || !m_source->isIndexable() ||
+        QThread::currentThread()->isInterruptionRequested()) {
         return;
     }
 
@@ -250,7 +251,8 @@ void SourceWorker::indexSlice(uint64_t viewGen) {
         }
     }
 
-    if (!progress.isComplete && progress.error.empty() && !isViewStale(viewGen)) {
+    if (!progress.isComplete && progress.error.empty() && !isViewStale(viewGen) &&
+        !QThread::currentThread()->isInterruptionRequested()) {
         QMetaObject::invokeMethod(this, "indexSlice", Qt::QueuedConnection, Q_ARG(uint64_t, viewGen));
     }
 }
@@ -265,7 +267,7 @@ void SourceWorker::executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryF
 
     auto res = executeWithInterruptRetry(
         queryFunc,
-        [](const core::PageResult &r) { return !r.ok && (r.error == "interrupted" || r.error == "Cancelled"); },
+        [](const core::PageResult &r) { return !r.ok && core::isCancellationError(r.error); },
         [&]() { return isStale(viewGen, opGen); });
 
     if (m_finishHook) {
@@ -380,14 +382,26 @@ void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool as
 
     auto sqliteSource = dynamic_cast<parsers::SqliteTableSource*>(m_source.get());
     std::string errStr;
+    // errStr is captured by reference into the synchronous retry lambda,
+    // reflecting the latest attempt's error string as required by the interrupt/retry contract.
     bool ok = executeWithInterruptRetry(
         [&]() {
             bool success = m_source->sort(column, ascending);
-            errStr = sqliteSource ? sqliteSource->error() : "";
+            if (sqliteSource) {
+                errStr = sqliteSource->error();
+            }
+            if (!success && errStr.empty()) {
+                // Only the SQLite source publishes a reason string. Any other
+                // source reporting failure through this worker must still reach
+                // the UI with something actionable, otherwise the status bar
+                // renders a bare "Sort failed: ".
+                errStr = m_source->canSort() ? "Sorting failed"
+                                             : "Sorting is not supported by this source";
+            }
             return success;
         },
         [&](bool success) {
-            return !success && (errStr == "interrupted" || errStr == "Cancelled");
+            return !success && core::isCancellationError(errStr);
         },
         [&]() { return isStale(viewGen, opGen); });
 
@@ -406,7 +420,12 @@ void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool as
 
 void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
                                const std::vector<std::pair<int, dtv::core::RefetchKey>> &rowKeys) {
-    if (isViewStale(viewGen) || !m_source) {
+    // A stale or interrupted view must still complete the renderer's pending
+    // copy: it keeps its cells and would otherwise never receive a completion
+    // or a failure, so the user sees a silent no-op.
+    if (isViewStale(viewGen) || !m_source ||
+        QThread::currentThread()->isInterruptionRequested()) {
+        emit refetchRowsCompleted(viewGen, copyRequestId, {});
         return;
     }
     uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
@@ -420,6 +439,11 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
 
     for (const auto &item : rowKeys) {
         if (isViewStale(viewGen)) {
+            // The view moved on, so nothing may reach the clipboard any more.
+            // Leaving without completing would strand the renderer's pending
+            // copy: it keeps its cells and never gets a completion or a
+            // failure, so the user sees a silent no-op.
+            emit refetchRowsCompleted(viewGen, copyRequestId, {});
             return;
         }
         if (budgetExceeded) {
@@ -432,7 +456,7 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
 
         auto res = executeWithInterruptRetry(
             [&]() { return m_source->refetch(item.second); },
-            [](const core::RefetchResult &r) { return !r.ok && (r.error == "interrupted" || r.error == "Cancelled"); },
+            [](const core::RefetchResult &r) { return !r.ok && core::isCancellationError(r.error); },
             [&]() { return isViewStale(viewGen); });
 
         if (res.ok) {

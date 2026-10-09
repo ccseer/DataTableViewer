@@ -11,7 +11,7 @@ namespace {
 struct SqliteDeleter {
     void operator()(sqlite3 *db) const
     {
-        sqlite3_close(db);
+        sqlite3_close_v2(db);
     }
     void operator()(sqlite3_stmt *stmt) const
     {
@@ -54,7 +54,12 @@ core::TableParseResult SqliteParser::parse(const core::ParseInput &in)
             }
 
             if(rc == SQLITE_DONE) {
-                result.ok = true;
+                // A database with no user tables leaves the viewer with neither
+                // data nor a picker, so it has to fail instead of reporting
+                // success with an empty result set.
+                result.ok = !result.table_names.empty();
+                if(!result.ok)
+                    result.error = "No user tables found in this SQLite database";
             } else {
                 result.ok = false;
                 result.error = sqlite3_errmsg(db.get());

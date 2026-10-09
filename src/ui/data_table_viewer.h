@@ -5,16 +5,18 @@
 #include "core/pager_state.h"
 #include "core/table_source.h"
 
+#include "workers/background_thread.h"
+
 #include <memory>
 #include <atomic>
 #include <functional>
+#include <vector>
 
 #include <QElapsedTimer>
 #include <QPointer>
 
 class QStackedLayout;
 class QPushButton;
-class BackgroundThread;
 class QSettings;
 
 namespace dtv {
@@ -79,6 +81,13 @@ private:
     void init();
     void updateTextViewActionEnabled(bool enabled);
     void cancelPending();
+    // Ownership ledger for every worker/thread pair this viewer created,
+    // including pairs already retired by cancelPending(). A retired pair frees
+    // itself asynchronously, so the destructor needs the full list to join
+    // threads that are still running.
+    void trackWorker(QObject *worker, BackgroundThread *thread);
+    void reapWorkers();
+    void joinBackgroundWorkers();
     void reapplyStyles();
     QString makeKey(const QString &format, const QString &table) const;
     QString getIniPath() const;
@@ -105,7 +114,6 @@ private:
 
     QString m_currentPath;
     int m_generation = 0;
-    bool m_sqliteAvailable = false;
     bool m_isDarkMode = false;
     qreal m_dpr = 1.0;
 
@@ -141,6 +149,12 @@ private:
     qint64 m_fileBytes = 0;
     qint64 m_openElapsedMs = 0;
     QElapsedTimer m_pageTimer;
+
+    struct WorkerHandle {
+        QPointer<QObject> worker;
+        QPointer<BackgroundThread> thread;
+    };
+    std::vector<WorkerHandle> m_workers;
 
     std::shared_ptr<std::atomic<uint64_t>> m_viewGen;
     std::shared_ptr<std::atomic<uint64_t>> m_opGen;

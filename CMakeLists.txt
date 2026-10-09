@@ -214,17 +214,8 @@ if(BUILD_TESTS)
     add_test(NAME test_action_registry COMMAND test_action_registry)
     list(APPEND TABLE_TEST_TARGETS test_action_registry)
 
-    add_custom_target(run_all_tests
-        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E test_csv_large
-                $<$<BOOL:$<CONFIG>>:-C>
-                $<$<BOOL:$<CONFIG>>:$<CONFIG>>
-        DEPENDS ${TABLE_TEST_TARGETS}
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Building and running all table tests"
-        USES_TERMINAL
-    )
-    set_target_properties(run_all_tests PROPERTIES FOLDER "tests")
-
+    # Declared before run_all_tests: its DEPENDS list is expanded at configure
+    # time, so an opt-in target added afterwards would never be built by it.
     option(BUILD_CSV_LARGE_TESTS "Build large CSV performance tests" OFF)
     if(BUILD_CSV_LARGE_TESTS)
         add_executable(test_csv_large tests/test_csv_large.cpp)
@@ -239,5 +230,17 @@ if(BUILD_TESTS)
         )
         set_target_properties(test_csv_large PROPERTIES FOLDER "tests")
         add_test(NAME test_csv_large COMMAND test_csv_large)
+        list(APPEND TABLE_TEST_TARGETS test_csv_large)
     endif()
+
+    add_custom_target(run_all_tests
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+                $<$<BOOL:$<CONFIG>>:-C>
+                $<$<BOOL:$<CONFIG>>:$<CONFIG>>
+        DEPENDS ${TABLE_TEST_TARGETS}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Building and running all table tests"
+        USES_TERMINAL
+    )
+    set_target_properties(run_all_tests PROPERTIES FOLDER "tests")
 endif()

@@ -37,11 +37,27 @@ char CsvRecordScanner::detectDelimiter(std::string_view bytes)
 
         std::string_view line = sample.substr(pos, nextLine - pos);
         if (!line.empty()) {
-            for (char c : line) {
-                if (c == ',')
+            // Only delimiters outside quoted fields separate columns. Counting
+            // inside quotes lets a single-column file whose values contain the
+            // other candidate be detected as the wrong format.
+            bool inQuotes = false;
+            for (size_t i = 0; i < line.size(); ++i) {
+                const char c = line[i];
+                if (inQuotes) {
+                    if (c == '"') {
+                        inQuotes = (i + 1 < line.size() && line[i + 1] == '"');
+                        if (inQuotes)
+                            ++i;
+                    }
+                    continue;
+                }
+                if (c == '"') {
+                    inQuotes = true;
+                } else if (c == ',') {
                     commaCount++;
-                else if (c == '\t')
+                } else if (c == '\t') {
                     tabCount++;
+                }
             }
             lines++;
         }

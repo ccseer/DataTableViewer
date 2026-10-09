@@ -88,7 +88,11 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
         const auto &type = m_data->columns[col].type;
         if(type == core::ColumnMeta::Type::Integer || type == core::ColumnMeta::Type::Float) {
             auto it = m_data->numeric_cache.by_column.find(col);
-            if(it != m_data->numeric_cache.by_column.end()) {
+            // The cache is built by whichever source produced the table; a
+            // producer that pushed fewer entries than rows would otherwise turn
+            // a sort into an out-of-range read.
+            if(it != m_data->numeric_cache.by_column.end() &&
+               static_cast<size_t>(row) < it->second.size()) {
                 return it->second[row];
             }
         }

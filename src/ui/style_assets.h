@@ -177,9 +177,12 @@ inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor, i
     return createMultiStateIcon(data, normalColor, normalColor, iconSz);
 }
 
+// One colour for every state. Qt picks QIcon::Active for a focused or pressed
+// button, so a contrasting "selected" colour here turns into white-on-light in
+// the light theme.
 inline QIcon createIcon(const char *data, const QColor &color, int iconSz = 20)
 {
-    return createMultiStateIcon(data, color, Qt::white, iconSz);
+    return createMultiStateIcon(data, color, color, iconSz);
 }
 
 } // namespace ui

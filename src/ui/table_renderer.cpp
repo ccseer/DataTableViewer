@@ -20,6 +20,31 @@
 
 namespace dtv {
 namespace ui {
+namespace {
+// The copy budget is counted in source (UTF-8) bytes while the payload lives in
+// memory as UTF-16, so the length is computed directly instead of materializing
+// a second copy of a payload that may already be at the limit. A surrogate pair
+// is counted as 6 instead of 4: over-estimating keeps the guard on the safe
+// side and costs nothing measurable.
+size_t utf8ByteCount(const QString &text)
+{
+    size_t bytes = 0;
+    for(const QChar ch : text) {
+        const char16_t unit = ch.unicode();
+        if(unit < 0x80)
+            bytes += 1;
+        else if(unit < 0x800)
+            bytes += 2;
+        else
+            bytes += 3;
+    }
+    return bytes;
+}
+bool withinCopyBudget(const QString &text)
+{
+    return utf8ByteCount(text) <= core::kMaxCopyBudgetBytes;
+}
+} // namespace
 
 TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
 {
@@ -133,6 +158,11 @@ void TableRenderer::clear()
     m_view->horizontalHeader()->setSortIndicatorShown(false);
     m_proxy->sort(-1);
     m_model->setTableData(nullptr);
+    // The vertical header keeps whatever width the last page needed, so a
+    // million-row table leaves a 7-digit gutter behind after clearing.
+    if(m_showRowIndex) {
+        updateVerticalHeaderWidth();
+    }
 }
 
 void TableRenderer::setPagedMode(bool paged)
@@ -275,11 +305,29 @@ void TableRenderer::performCopy(bool isMarkdown)
         rowsToRefetch.emplace_back(mRow, std::move(key));
     }
 
+    // Refuse before serializing. A page can hold 3000 x 256 cells, so a select
+    // all would otherwise build a payload far past the budget and only fail
+    // once the whole string is already allocated.
+    size_t payloadBytes = 0;
+    for(const auto &cell : pending.cells) {
+        payloadBytes += utf8ByteCount(cell.displayedText) + 1;
+        if(payloadBytes > core::kMaxCopyBudgetBytes) {
+            m_pendingCopy.reset();
+            emit copyRefetchIncomplete(-1);
+            return;
+        }
+    }
+
     if(rowsToRefetch.empty()) {
         m_pendingCopy.reset();
-        // No cells need refetching: write directly to clipboard!
-        QGuiApplication::clipboard()->setText(isMarkdown ? buildMarkdownText(pending.cells, {})
-                                                         : buildPlainText(pending.cells, {}));
+        // No cells need refetching: write directly to clipboard.
+        const QString text = isMarkdown ? buildMarkdownText(pending.cells, {})
+                                        : buildPlainText(pending.cells, {});
+        if(!withinCopyBudget(text)) {
+            emit copyRefetchIncomplete(-1);
+            return;
+        }
+        QGuiApplication::clipboard()->setText(text);
         return;
     }
 
@@ -339,8 +387,12 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
 
     QString text = "|";
     for(int col : cols) {
+        // Every column in cols comes from colSet, which is harvested from cells
+        // above, so the lookup is expected to hit. Stay defensive anyway: a
+        // caller that hand-builds a cell vector must not turn a missing header
+        // into a dereference past the end.
         auto found = std::find_if(cells.begin(), cells.end(), [col](const auto &c) { return c.visCol == col; });
-        QString h = singleLineDisplayText(found->headerText.toStdString());
+        QString h = found == cells.end() ? QString() : singleLineDisplayText(found->headerText);
         h.replace("|", "\\|");
         text += h + "|";
     }
@@ -440,10 +492,18 @@ void TableRenderer::onRefetchRowsCompleted(uint64_t copyRequestId,
     }
 
     const bool isMarkdown = m_pendingCopy->isMarkdown;
-    QGuiApplication::clipboard()->setText(isMarkdown ? buildMarkdownText(m_pendingCopy->cells, refetchedValues)
-                                                     : buildPlainText(m_pendingCopy->cells, refetchedValues));
-
+    const QString text = isMarkdown ? buildMarkdownText(m_pendingCopy->cells, refetchedValues)
+                                    : buildPlainText(m_pendingCopy->cells, refetchedValues);
     m_pendingCopy.reset();
+
+    // Same budget as the direct path: the refetch side only prices the cells it
+    // fetched, not the markup the formatter adds on top.
+    if(!withinCopyBudget(text)) {
+        emit copyRefetchIncomplete(-1);
+        return;
+    }
+
+    QGuiApplication::clipboard()->setText(text);
 
     if(!failedRows.empty()) {
         emit copyRefetchIncomplete(static_cast<int>(failedRows.size()));

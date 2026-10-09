@@ -36,16 +36,6 @@ void TableModel::setTableData(std::shared_ptr<const core::TableData> data, bool 
     }
 }
 
-void TableModel::setRowOffset(int64_t offset)
-{
-    if(m_rowOffset != offset) {
-        m_rowOffset = offset;
-        if(m_loadedRows > 0) {
-            emit headerDataChanged(Qt::Vertical, 0, m_loadedRows - 1);
-        }
-    }
-}
-
 int TableModel::totalRowCount() const
 {
     return m_data ? static_cast<int>(m_data->rows.size()) : 0;
@@ -118,7 +108,7 @@ QVariant TableModel::headerData(int section, Qt::Orientation orientation, int ro
             return QString::fromStdString(m_data->columns[section].name);
         }
     } else if(orientation == Qt::Vertical && role == Qt::DisplayRole) {
-        if(section >= 0 && section < static_cast<int>(m_data->rows.size())) {
+        if(section >= 0 && section < m_loadedRows) {
             return QString::number(m_rowOffset + section + 1);
         }
     }

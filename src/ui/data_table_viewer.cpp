@@ -121,12 +121,35 @@ void DataTableViewer::init()
     });
 
     connect(m_renderer, &dtv::ui::TableRenderer::currentItemChanged, this,
-            [this](const QString &header, const QString &value) {
-                if(header.isEmpty()) {
+            [this](const QString &header, const QString &value, int modelRow, int /*modelCol*/) {
+                if(header.isEmpty() || modelRow < 0) {
                     m_status->restoreInfo();
-                } else {
-                    m_status->setValueText(QString("%1 : %2").arg(header).arg(value));
+                    return;
                 }
+
+                int pageRow = modelRow + 1;
+                int pageSize = m_pagerState.pageSize > 0 ? m_pagerState.pageSize : m_renderer->rowCount();
+
+                QString prefix;
+                if(m_isPaged && m_pagerState.pageSize > 0) {
+                    int64_t globalRow = dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize) + modelRow;
+                    if(m_pagerState.total.has_value()) {
+                        prefix = QString("[Row %1/%2, Global #%L3/%L4] ")
+                                     .arg(pageRow)
+                                     .arg(pageSize)
+                                     .arg(globalRow)
+                                     .arg(*m_pagerState.total);
+                    } else {
+                        prefix = QString("[Row %1/%2, Global #%L3] ")
+                                     .arg(pageRow)
+                                     .arg(pageSize)
+                                     .arg(globalRow);
+                    }
+                } else {
+                    prefix = QString("[Row %1/%2] ").arg(pageRow).arg(pageSize);
+                }
+
+                m_status->setValueText(QString("%1%2 : %3").arg(prefix, header, value));
             });
 
     connect(m_renderer, &dtv::ui::TableRenderer::filterCountChanged, this, [this](int matches) {
@@ -190,6 +213,29 @@ void DataTableViewer::init()
     m_actionRegistry->registerAction("DataTableViewer.viewText", tr("View in Text viewer"), QKeySequence("Ctrl+Alt+T"), [this] {
         onTextViewBtnClicked();
     });
+
+    m_actionRegistry->registerAction("DataTableViewer.pageFirst", tr("First page"), QKeySequence(Qt::ControlModifier | Qt::Key_Home), [this] {
+        onFirstPageClicked();
+    });
+
+    m_actionRegistry->registerAction("DataTableViewer.pagePrev", tr("Previous page"), QKeySequence(Qt::ControlModifier | Qt::Key_PageUp), [this] {
+        onPrevPageClicked();
+    });
+
+    m_actionRegistry->registerAction("DataTableViewer.pageNext", tr("Next page"), QKeySequence(Qt::ControlModifier | Qt::Key_PageDown), [this] {
+        onNextPageClicked();
+    });
+
+    m_actionRegistry->registerAction("DataTableViewer.pageLast", tr("Last page"), QKeySequence(Qt::ControlModifier | Qt::Key_End), [this] {
+        onLastPageClicked();
+    });
+
+    m_pageBar->setShortcutHints(
+        m_actionRegistry->shortcutNativeText("DataTableViewer.pageFirst"),
+        m_actionRegistry->shortcutNativeText("DataTableViewer.pagePrev"),
+        m_actionRegistry->shortcutNativeText("DataTableViewer.pageNext"),
+        m_actionRegistry->shortcutNativeText("DataTableViewer.pageLast")
+    );
 
     // Seed default configuration into DataTableViewer.ini if missing so users can discover and edit it
     if (!ini().contains("page_rows") && !ini().contains("DataTableViewer/page_rows")) {
@@ -262,6 +308,24 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
 
     m_currentPath = options()->path();
     updateTextViewActionEnabled(!m_currentPath.isEmpty());
+
+    if(options()) {
+        QVariant minSzVar = options()->property(ViewOptionsKeys::kKeySizeMin);
+        if(minSzVar.isValid() && minSzVar.canConvert<QSize>()) {
+            QSize minSz = minSzVar.toSize();
+            if(minSz.isValid() && minSz.width() > 0 && minSz.height() > 0) {
+                setMinimumSize(minSz);
+            }
+        }
+        QVariant maxSzVar = options()->property(ViewOptionsKeys::kKeySizeMax);
+        if(maxSzVar.isValid() && maxSzVar.canConvert<QSize>()) {
+            QSize maxSz = maxSzVar.toSize();
+            if(maxSz.isValid() && maxSz.width() > 0 && maxSz.height() > 0) {
+                setMaximumSize(maxSz);
+            }
+        }
+    }
+
     updateTheme(options()->theme());
     updateDPR(options()->dpr());
 
@@ -684,6 +748,14 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                     return;
                 }
 
+                if(!result->data) {
+                    if(m_sorting) { recoverSort(); return; }
+                    m_status->setValueText(tr("Error: Empty page result payload"));
+                    m_pendingPage = m_pagerState.page;
+                    emit sigCommand(VCT_StateChange, VCV_Error);
+                    return;
+                }
+
                 const bool isInitialLoad = m_firstPagePending;
 
                 if(!isInitialLoad && !m_sorting && result->data->rows.empty()) {
@@ -717,7 +789,7 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 }
                 m_currentToken = result->token;
 
-                int64_t rowCount = static_cast<int64_t>(result->data ? result->data->rows.size() : 0);
+                int64_t rowCount = static_cast<int64_t>(result->data->rows.size());
                 int64_t firstRow = rowCount > 0
                                        ? dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize)
                                        : 0;

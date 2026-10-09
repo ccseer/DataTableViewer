@@ -151,6 +151,9 @@ void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act, co
     auto confIt = m_configuredValues.find(id);
     if (confIt != m_configuredValues.end() && !confIt->second.isEmpty()) {
         QKeySequence parsed = QKeySequence::fromString(confIt->second, QKeySequence::PortableText);
+        if (!isValidKeySequence(parsed)) {
+            parsed = QKeySequence::fromString(confIt->second, QKeySequence::NativeText);
+        }
         if (isValidKeySequence(parsed)) {
             effective = parsed;
         } else {
@@ -167,15 +170,17 @@ void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act, co
     // Duplicate key detection and warning
     if (!effective.isEmpty()) {
         const QString seqStr = effective.toString(QKeySequence::PortableText);
-        auto boundIt = m_boundShortcuts.find(seqStr);
-        if (boundIt != m_boundShortcuts.end() && boundIt->second != id) {
-            const QString warnPair = boundIt->second + ":" + id + ":" + seqStr;
-            if (m_warnedDuplicates.insert(warnPair).second) {
-                qWarning() << "[ActionRegistry] Duplicate shortcut" << seqStr
-                           << "between action" << boundIt->second << "and action" << id;
+        if (!seqStr.isEmpty()) {
+            auto boundIt = m_boundShortcuts.find(seqStr);
+            if (boundIt != m_boundShortcuts.end() && boundIt->second != id) {
+                const QString warnPair = boundIt->second + ":" + id + ":" + seqStr;
+                if (m_warnedDuplicates.insert(warnPair).second) {
+                    qWarning() << "[ActionRegistry] Duplicate shortcut" << seqStr
+                               << "between action" << boundIt->second << "and action" << id;
+                }
+            } else {
+                m_boundShortcuts[seqStr] = id;
             }
-        } else {
-            m_boundShortcuts[seqStr] = id;
         }
     }
 }

@@ -18,12 +18,10 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     layout->addStretch();
 
     m_btnFirst = new QPushButton(this);
-    m_btnFirst->setToolTip(tr("First page"));
     m_btnFirst->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnFirst);
 
     m_btnPrev = new QPushButton(this);
-    m_btnPrev->setToolTip(tr("Previous page"));
     m_btnPrev->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnPrev);
 
@@ -32,12 +30,10 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     layout->addWidget(m_labelPage);
 
     m_btnNext = new QPushButton(this);
-    m_btnNext->setToolTip(tr("Next page"));
     m_btnNext->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnNext);
 
     m_btnLast = new QPushButton(this);
-    m_btnLast->setToolTip(tr("Last page"));
     m_btnLast->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnLast);
 
@@ -48,6 +44,7 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     connect(m_btnNext, &QPushButton::clicked, this, &PageBar::nextClicked);
     connect(m_btnLast, &QPushButton::clicked, this, &PageBar::lastClicked);
 
+    updateTooltips();
     updateTheme(false, 1.0);
     updateDisplay();
 }
@@ -104,9 +101,28 @@ void PageBar::updateTheme(bool dark, qreal dpr)
     setStyleSheet(QString(g_qss_page_bar)
                       .arg(surface, border)
                       .arg(qRound(4 * m_dpr))
-                      .arg(text));
+                      .arg(text)
+                      .arg(qRound(12 * m_dpr)));
 
     updateIcons();
+}
+
+void PageBar::setShortcutHints(const QString &first, const QString &prev,
+                               const QString &next, const QString &last)
+{
+    m_hintFirst = first;
+    m_hintPrev = prev;
+    m_hintNext = next;
+    m_hintLast = last;
+    updateTooltips();
+}
+
+void PageBar::updateTooltips()
+{
+    m_btnFirst->setToolTip(m_hintFirst.isEmpty() ? tr("First page") : tr("First page (%1)").arg(m_hintFirst));
+    m_btnPrev->setToolTip(m_hintPrev.isEmpty() ? tr("Previous page") : tr("Previous page (%1)").arg(m_hintPrev));
+    m_btnNext->setToolTip(m_hintNext.isEmpty() ? tr("Next page") : tr("Next page (%1)").arg(m_hintNext));
+    m_btnLast->setToolTip(m_hintLast.isEmpty() ? tr("Last page") : tr("Last page (%1)").arg(m_hintLast));
 }
 
 void PageBar::updateIcons()

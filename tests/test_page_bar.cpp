@@ -96,6 +96,47 @@ private slots:
         QCOMPARE(spyNext.count(), 1);
         QCOMPARE(spyLast.count(), 1);
     }
+
+    void testShortcutHints() {
+        PageBar bar;
+        const QList<QPushButton *> buttons = bar.findChildren<QPushButton *>();
+        QCOMPARE(buttons.size(), 4);
+
+        // Before hints: clean untagged tooltips
+        QCOMPARE(buttons.at(0)->toolTip(), QString("First page"));
+        QCOMPARE(buttons.at(1)->toolTip(), QString("Previous page"));
+        QCOMPARE(buttons.at(2)->toolTip(), QString("Next page"));
+        QCOMPARE(buttons.at(3)->toolTip(), QString("Last page"));
+
+        // Set hints
+        bar.setShortcutHints("Ctrl+Home", "Ctrl+PageUp", "Ctrl+PageDown", "Ctrl+End");
+        QCOMPARE(buttons.at(0)->toolTip(), QString("First page (Ctrl+Home)"));
+        QCOMPARE(buttons.at(1)->toolTip(), QString("Previous page (Ctrl+PageUp)"));
+        QCOMPARE(buttons.at(2)->toolTip(), QString("Next page (Ctrl+PageDown)"));
+        QCOMPARE(buttons.at(3)->toolTip(), QString("Last page (Ctrl+End)"));
+
+        // Clear hints
+        bar.setShortcutHints("", "", "", "");
+        QCOMPARE(buttons.at(0)->toolTip(), QString("First page"));
+        QCOMPARE(buttons.at(1)->toolTip(), QString("Previous page"));
+        QCOMPARE(buttons.at(2)->toolTip(), QString("Next page"));
+        QCOMPARE(buttons.at(3)->toolTip(), QString("Last page"));
+    }
+
+    void testDprThemeScaling() {
+        PageBar bar;
+        bar.updateTheme(false, 1.0);
+        QCOMPARE(bar.height(), 28);
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 1.0))));
+
+        bar.updateTheme(true, 1.5);
+        QCOMPARE(bar.height(), qRound(28 * 1.5));
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 1.5))));
+
+        bar.updateTheme(false, 2.0);
+        QCOMPARE(bar.height(), qRound(28 * 2.0));
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 2.0))));
+    }
 };
 
 QTEST_MAIN(TestPageBar)

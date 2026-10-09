@@ -57,7 +57,7 @@ public:
 signals:
     void filterCountChanged(int matches);
     void requestFilter(const QString &text);
-    void currentItemChanged(const QString &header, const QString &value);
+    void currentItemChanged(const QString &header, const QString &value, int modelRow = -1, int modelCol = -1);
     void pageUpRequested();
     void pageDownRequested();
     void refetchRowsRequested(uint64_t copyRequestId, bool isMarkdown,
@@ -94,7 +94,6 @@ private:
     bool m_lastSortShown = false;
     bool m_pagedMode = false;
     bool m_showRowIndex = true;
-    bool m_isDarkMode = false;
     qreal m_dpr = 1.0;
     QPointer<QAction> m_copyAction;
 

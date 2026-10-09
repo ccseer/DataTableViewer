@@ -17,6 +17,7 @@
 #include <QPushButton>
 #include <QHeaderView>
 #include <QTableView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QFileInfo>
 #include <QCoreApplication>
@@ -47,6 +48,9 @@ private slots:
     void testEmptyPageNavigationPreservesStateAndToken();
     void testTextViewControlBarButton();
     void testRowIndexColumn();
+    void testStatusBarRowIndexMetrics();
+    void testPagingShortcutsAndTooltips();
+    void testContentSizingAndPropertyBounds();
 
 private:
     std::unique_ptr<QTemporaryDir> m_tempDir;
@@ -959,6 +963,7 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     result.values = {QString(2000, QChar(0x4e2d)).toStdString() + "\r\nend"};
     renderer.onRefetchRowsCompleted(request, {{0, result}});
     QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), QString(2000, QChar(0x4e2d)) + " end", 3000);
+    QTest::qWait(50);
     renderer.setPageData(data, {key}, {{true}});
     renderer.selectCell(0, 0);
     renderer.copyToClipboard();
@@ -968,6 +973,7 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     renderer.copyToClipboard();
     renderer.onRefetchRowsCompleted(oldRequest, {{0, result}});
     QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), QString("clamped"), 3000);
+    QTest::qWait(50);
     renderer.setPageData(data, {key}, {{true}});
     renderer.selectCell(0, 0);
     renderer.copyAsMarkdown();
@@ -1345,6 +1351,160 @@ void TestViewerPaging::testRowIndexColumn() {
         // Page 2: rows 501..1000
         QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("501"));
         QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(), QString("1000"));
+    }
+}
+
+void TestViewerPaging::testStatusBarRowIndexMetrics() {
+    // 1. Paged SQLite table with known total: displays [Row n/500, Global #k/total] col : value
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_smallDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+
+        // Select cell (0, 0) -> row 1 of 500, global #1 of 50
+        viewer.m_renderer->selectCell(0, 0);
+        QCOMPARE(viewer.m_status->text(), QString("[Row 1/500, Global #1/50] id : 1"));
+
+        // Select cell (4, 1) -> row 5 of 500, global #5 of 50
+        viewer.m_renderer->selectCell(4, 1);
+        QCOMPARE(viewer.m_status->text(), QString("[Row 5/500, Global #5/50] name : Item_5"));
+
+        // Filter for "Item_2" via search bar (matches 11 rows: Item_2, Item_20..Item_29)
+        viewer.m_search->setText("Item_2");
+        QTRY_COMPARE_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount(), 11, 2000);
+
+        // Select first visible row (Item_2, source row index 1)
+        viewer.m_renderer->selectCell(1, 1);
+        QCOMPARE(viewer.m_status->text(), QString("[11 matches on this page]  [Row 2/500, Global #2/50] name : Item_2"));
+
+        // Clear filter and clear selection
+        viewer.m_search->clear();
+        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        table->selectionModel()->clearSelection();
+        table->selectionModel()->setCurrentIndex(QModelIndex(), QItemSelectionModel::NoUpdate);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_status->text().contains("[Row"), 2000);
+    }
+
+    // 2. CSV table: displays [Row n/pageSize, Global #k/total] or [Row n/pageSize]
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
+        // Select cell (1, 0) -> row 2 of 500
+        viewer.m_renderer->selectCell(1, 0);
+        QVERIFY(viewer.m_status->text().startsWith("[Row 2/500"));
+        QVERIFY(viewer.m_status->text().contains("id : 2"));
+    }
+}
+
+void TestViewerPaging::testPagingShortcutsAndTooltips() {
+    DataTableViewer viewer;
+    ViewOptionsPrivate optsPriv;
+    ViewOptions opts;
+    setupViewer(viewer, m_1mDbPath, optsPriv, opts);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+    viewer.loadSelectedTable(m_1mDbPath, "items");
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
+
+    // 1. Verify PageBar button tooltips display native shortcut hints
+    const QList<QPushButton *> buttons = viewer.m_pageBar->findChildren<QPushButton *>();
+    QCOMPARE(buttons.size(), 4);
+
+    const QString hintFirst = QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
+    const QString hintPrev = QKeySequence(Qt::ControlModifier | Qt::Key_PageUp).toString(QKeySequence::NativeText);
+    const QString hintNext = QKeySequence(Qt::ControlModifier | Qt::Key_PageDown).toString(QKeySequence::NativeText);
+    const QString hintLast = QKeySequence(Qt::ControlModifier | Qt::Key_End).toString(QKeySequence::NativeText);
+
+    QCOMPARE(buttons.at(0)->toolTip(), QString("First page (%1)").arg(hintFirst));
+    QCOMPARE(buttons.at(1)->toolTip(), QString("Previous page (%1)").arg(hintPrev));
+    QCOMPARE(buttons.at(2)->toolTip(), QString("Next page (%1)").arg(hintNext));
+    QCOMPARE(buttons.at(3)->toolTip(), QString("Last page (%1)").arg(hintLast));
+
+    // 2. Verify registered actions in ActionRegistry
+    QVERIFY(viewer.actionRegistry() != nullptr);
+    QAction *actFirst = viewer.actionRegistry()->action("DataTableViewer.pageFirst");
+    QAction *actPrev = viewer.actionRegistry()->action("DataTableViewer.pagePrev");
+    QAction *actNext = viewer.actionRegistry()->action("DataTableViewer.pageNext");
+    QAction *actLast = viewer.actionRegistry()->action("DataTableViewer.pageLast");
+    QVERIFY(actFirst && actPrev && actNext && actLast);
+    QCOMPARE(actFirst->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_Home));
+    QCOMPARE(actPrev->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_PageUp));
+    QCOMPARE(actNext->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_PageDown));
+    QCOMPARE(actLast->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_End));
+
+    // 3. Triggering pageNext action navigates to page 2
+    QCOMPARE(viewer.m_pagerState.page, 1LL);
+    actNext->trigger();
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 5000);
+    QCOMPARE(viewer.m_renderer->rowCount(), 500);
+
+    // 4. Triggering pagePrev action navigates back to page 1
+    actPrev->trigger();
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 5000);
+    QCOMPARE(viewer.m_renderer->rowCount(), 500);
+
+    // 5. Verify eventFilter ignores modified PageUp/Down at boundaries
+    auto *table = viewer.m_renderer->findChild<QTableView*>();
+    QVERIFY(table != nullptr);
+    QKeyEvent shiftPageUp(QEvent::KeyPress, Qt::Key_PageUp, Qt::ShiftModifier);
+    QCoreApplication::sendEvent(table, &shiftPageUp);
+    // Must not turn page: remains on page 1
+    QCOMPARE(viewer.m_pagerState.page, 1LL);
+}
+
+void TestViewerPaging::testContentSizingAndPropertyBounds() {
+    // 1. Verify getContentSize() returns natural size 960x600
+    {
+        DataTableViewer viewer;
+        QCOMPARE(viewer.getContentSize(), QSize(960, 600));
+    }
+
+    // 2. Setting size_min_viewer and size_max_viewer in properties applies to viewer widget bounds
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.extras.insert(ViewOptionsKeys::kKeySizeMin, QSize(400, 300));
+        optsPriv.extras.insert(ViewOptionsKeys::kKeySizeMax, QSize(1600, 1200));
+
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        QHBoxLayout ctrlbarLayout;
+        viewer.load(&ctrlbarLayout, &opts);
+
+        QCOMPARE(viewer.minimumSize(), QSize(400, 300));
+        QCOMPARE(viewer.maximumSize(), QSize(1600, 1200));
+    }
+
+    // 3. In the absence of sizing properties, default widget min constraints are preserved
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        QHBoxLayout ctrlbarLayout;
+        viewer.load(&ctrlbarLayout, &opts);
+
+        QCOMPARE(viewer.minimumSize(), QSize(0, 0));
     }
 }
 

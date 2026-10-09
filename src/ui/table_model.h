@@ -17,7 +17,6 @@ public:
 
     void setTableData(std::shared_ptr<const core::TableData> data, bool loadAll = false,
                       int64_t rowOffset = 0);
-    void setRowOffset(int64_t offset);
     int64_t rowOffset() const { return m_rowOffset; }
     int totalRowCount() const;
 

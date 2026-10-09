@@ -139,6 +139,30 @@ private slots:
         QCOMPARE(nativeText, QKeySequence("Ctrl+Alt+T").toString(QKeySequence::NativeText));
     }
 
+    void testNativeTextConfiguredShortcutFallback()
+    {
+        QString iniPath = m_tempDir->filePath("test_native_fallback.ini");
+        const QString nativeSeq = QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
+        {
+            QSettings settings(iniPath, QSettings::IniFormat);
+            settings.beginGroup("Shortcuts");
+            settings.setValue("DataTableViewer.pageFirst", nativeSeq);
+            settings.endGroup();
+            settings.sync();
+        }
+
+        QWidget widget;
+        dtv::ui::ActionRegistry registry(&widget);
+
+        QSettings settings(iniPath, QSettings::IniFormat);
+        registry.loadShortcuts(settings);
+
+        QAction *act = registry.registerAction("DataTableViewer.pageFirst", "First page",
+                                               QKeySequence(Qt::ControlModifier | Qt::Key_Home));
+        QCOMPARE(act->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_Home));
+        QCOMPARE(registry.shortcut("DataTableViewer.pageFirst"), QKeySequence(Qt::ControlModifier | Qt::Key_Home));
+    }
+
     void testSaveDefaultsIfMissing()
     {
         QString iniPath = m_tempDir->filePath("test_seed_defaults.ini");

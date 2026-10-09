@@ -54,12 +54,15 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
     connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex &current, const QModelIndex & /*previous*/) {
                 if(current.isValid()) {
+                    QModelIndex srcIdx = m_proxy->mapToSource(current);
+                    int mRow = srcIdx.row();
+                    int mCol = srcIdx.column();
                     QString header =
                         m_proxy->headerData(current.column(), Qt::Horizontal).toString();
                     QString value = current.data(Qt::DisplayRole).toString();
-                    emit currentItemChanged(header, value);
+                    emit currentItemChanged(header, value, mRow, mCol);
                 } else {
-                    emit currentItemChanged("", "");
+                    emit currentItemChanged("", "", -1, -1);
                 }
             });
 }
@@ -454,7 +457,7 @@ void TableRenderer::selectCell(int row, int col)
     QModelIndex proxyIdx = m_proxy->mapFromSource(m_model->index(row, col));
     if(!proxyIdx.isValid())
         return;
-    m_view->selectionModel()->select(proxyIdx, QItemSelectionModel::ClearAndSelect);
+    m_view->selectionModel()->setCurrentIndex(proxyIdx, QItemSelectionModel::ClearAndSelect);
 }
 
 void TableRenderer::setCopyAction(QAction *action)
@@ -495,7 +498,7 @@ void TableRenderer::updateVerticalHeaderWidth()
     if(!m_showRowIndex || !m_view || !m_model || !m_view->verticalHeader()) {
         return;
     }
-    int64_t maxRow = m_model->rowOffset() + (m_pagedMode ? m_model->rowCount() : m_model->totalRowCount());
+    int64_t maxRow = m_model->rowOffset() + m_model->rowCount();
     if(maxRow <= 0) {
         maxRow = 1;
     }
@@ -507,7 +510,7 @@ void TableRenderer::updateVerticalHeaderWidth()
 
 void TableRenderer::updateTheme(bool dark, qreal dpr)
 {
-    m_isDarkMode = dark;
+    Q_UNUSED(dark);
     m_dpr = dpr;
     if(m_view) {
         if(m_view->verticalHeader()) {
@@ -559,20 +562,23 @@ bool TableRenderer::eventFilter(QObject *obj, QEvent *event)
     if(obj == m_view && event->type() == QEvent::KeyPress) {
         auto *keyEvent = static_cast<QKeyEvent *>(event);
         if(m_pagedMode) {
-            const bool hasCtrl = (keyEvent->modifiers() & Qt::ControlModifier);
-            auto *vBar = m_view->verticalScrollBar();
-            const bool atTop = (!vBar || vBar->value() <= vBar->minimum());
-            const bool atBottom = (!vBar || vBar->value() >= vBar->maximum());
+            const auto mods = keyEvent->modifiers();
+            const bool isBareKey = (mods == Qt::NoModifier || mods == Qt::KeypadModifier);
+            if(isBareKey) {
+                auto *vBar = m_view->verticalScrollBar();
+                const bool atTop = (!vBar || vBar->value() <= vBar->minimum());
+                const bool atBottom = (!vBar || vBar->value() >= vBar->maximum());
 
-            if(keyEvent->key() == Qt::Key_PageUp) {
-                if(hasCtrl || atTop) {
-                    emit pageUpRequested();
-                    return true;
-                }
-            } else if(keyEvent->key() == Qt::Key_PageDown) {
-                if(hasCtrl || atBottom) {
-                    emit pageDownRequested();
-                    return true;
+                if(keyEvent->key() == Qt::Key_PageUp) {
+                    if(atTop) {
+                        emit pageUpRequested();
+                        return true;
+                    }
+                } else if(keyEvent->key() == Qt::Key_PageDown) {
+                    if(atBottom) {
+                        emit pageDownRequested();
+                        return true;
+                    }
                 }
             }
         }

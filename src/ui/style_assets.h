@@ -115,7 +115,7 @@ inline constexpr auto g_qss_bottom_bar = R"(
     }
 )";
 
-// Placeholder args: %1: SurfaceBG, %2: Border, %3: Radius, %4: Text
+// Placeholder args: %1: SurfaceBG, %2: Border, %3: Radius, %4: Text, %5: FontSize
 inline constexpr auto g_qss_page_bar = R"(
     QWidget#pageBar {
         background-color: %1;
@@ -126,7 +126,7 @@ inline constexpr auto g_qss_page_bar = R"(
     }
     QPushButton:hover { background-color: rgba(128, 128, 128, 40); }
     QPushButton:pressed { background-color: rgba(128, 128, 128, 60); }
-    QLabel { color: %4; font-size: 12px; }
+    QLabel { color: %4; font-size: %5px; }
 )";
 
 inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor,

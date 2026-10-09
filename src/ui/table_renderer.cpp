@@ -7,7 +7,6 @@
 #include <QHeaderView>
 #include <QVBoxLayout>
 #include <QSettings>
-#include <QShortcut>
 #include <QKeySequence>
 #include <QGuiApplication>
 #include <QClipboard>
@@ -447,6 +446,28 @@ void TableRenderer::selectCell(int row, int col)
     m_view->selectionModel()->select(proxyIdx, QItemSelectionModel::ClearAndSelect);
 }
 
+void TableRenderer::setCopyAction(QAction *action)
+{
+    m_copyAction = action;
+    if(m_copyAction && m_view && m_view->selectionModel()) {
+        m_copyAction->setEnabled(m_view->selectionModel()->hasSelection());
+        connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged,
+                m_copyAction, [this] {
+                    if(m_copyAction && m_view) {
+                        m_copyAction->setEnabled(m_view->selectionModel()
+                                                 && m_view->selectionModel()->hasSelection());
+                    }
+                });
+        // A model reset clears the selection silently (QItemSelectionModel::reset
+        // blocks signals), so the action must be disabled explicitly.
+        connect(m_model, &QAbstractItemModel::modelReset, m_copyAction, [this] {
+            if(m_copyAction) {
+                m_copyAction->setEnabled(false);
+            }
+        });
+    }
+}
+
 void TableRenderer::showContextMenu(const QPoint &pos)
 {
     QMenu menu(this);
@@ -458,10 +479,14 @@ void TableRenderer::showContextMenu(const QPoint &pos)
 
     menu.addSeparator();
 
-    QAction *copyAction = menu.addAction(tr("Copy"));
-    copyAction->setShortcut(QKeySequence::Copy);
-    copyAction->setEnabled(m_view->selectionModel()->hasSelection());
-    connect(copyAction, &QAction::triggered, this, &TableRenderer::copyToClipboard);
+    if(m_copyAction) {
+        m_copyAction->setEnabled(m_view->selectionModel()->hasSelection());
+        menu.addAction(m_copyAction);
+    } else {
+        QAction *copyAction = menu.addAction(tr("Copy"));
+        copyAction->setEnabled(m_view->selectionModel()->hasSelection());
+        connect(copyAction, &QAction::triggered, this, &TableRenderer::copyToClipboard);
+    }
 
     QAction *copyMdAction = menu.addAction(tr("Copy as Markdown"));
     copyMdAction->setEnabled(m_view->selectionModel()->hasSelection());

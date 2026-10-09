@@ -1,4 +1,5 @@
 #include "data_table_viewer.h"
+#include "action_registry.h"
 #include "search_bar.h"
 #include "status_bar.h"
 #include "page_bar.h"
@@ -17,7 +18,7 @@
 #include <QHBoxLayout>
 #include <QStackedLayout>
 #include <QPushButton>
-#include <QShortcut>
+#include <QLineEdit>
 #include <QFileInfo>
 #include <QPointer>
 #include <QSettings>
@@ -29,6 +30,8 @@
 #define qprintt qDebug() << "[DataTableViewer]"
 
 namespace {
+static bool s_iniWriteWarned = false;
+
 bool isSqliteExtension(const QString &suffix)
 {
     const QString ext = suffix.toLower();
@@ -54,6 +57,10 @@ DataTableViewer::~DataTableViewer()
 
 void DataTableViewer::init()
 {
+    if (m_renderer) {
+        return;
+    }
+
     qRegisterMetaType<std::shared_ptr<const dtv::core::TableParseResult>>(
         "std::shared_ptr<const dtv::core::TableParseResult>");
     dtv::workers::registerWorkerMetatypes();
@@ -167,12 +174,31 @@ void DataTableViewer::init()
                 }
             });
 
-    auto *findShortcut = new QShortcut(QKeySequence::Find, this);
-    findShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(findShortcut, &QShortcut::activated, this, [this] {
+    m_actionRegistry = std::make_unique<dtv::ui::ActionRegistry>(this);
+    ini().sync();
+    m_actionRegistry->loadShortcuts(ini());
+
+    m_actionRegistry->registerAction("DataTableViewer.find", tr("Find"), QKeySequence::Find, [this] {
         m_search->setFocus();
         m_search->selectAll();
     });
+
+    auto *copyAction = m_actionRegistry->registerAction("DataTableViewer.copy", tr("Copy"), QKeySequence::Copy, [this] {
+        onCopyTriggered();
+    });
+
+    // Seed default configuration into DataTableViewer.ini if missing so users can discover and edit it
+    if (!ini().contains("page_rows") && !ini().contains("DataTableViewer/page_rows")) {
+        ini().setValue("page_rows", 500);
+    }
+    m_actionRegistry->saveDefaultsIfMissing(ini());
+    ini().sync();
+    if (!s_iniWriteWarned && ini().status() != QSettings::NoError) {
+        s_iniWriteWarned = true;
+        qprintt << "failed to write initial configuration to" << getIniPath();
+    }
+
+    m_renderer->setCopyAction(copyAction);
 }
 
 void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar)
@@ -319,8 +345,8 @@ void DataTableViewer::saveCurrentHeaderState()
     ini().sync();
     // A plugin installed under a read-only directory loses the header state
     // silently unless the failure is surfaced once.
-    if(!m_iniWriteWarned && ini().status() != QSettings::NoError) {
-        m_iniWriteWarned = true;
+    if(!s_iniWriteWarned && ini().status() != QSettings::NoError) {
+        s_iniWriteWarned = true;
         qprintt << "failed to write header state to" << getIniPath();
     }
 }
@@ -939,6 +965,14 @@ QString DataTableViewer::makeKey(const QString &format, const QString &table) co
 
 void DataTableViewer::onCopyTriggered()
 {
+    // A focused input owns clipboard commands; never fall through to the table
+    // copy or the table selection would silently overwrite the clipboard.
+    if(auto *edit = qobject_cast<QLineEdit *>(focusWidget())) {
+        if(edit->hasSelectedText()) {
+            edit->copy();
+        }
+        return;
+    }
     if(m_renderer && m_stack->currentWidget() == m_renderer) {
         m_renderer->copyToClipboard();
     }

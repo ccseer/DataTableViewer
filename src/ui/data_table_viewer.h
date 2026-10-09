@@ -28,6 +28,7 @@ class StatusBar;
 class PageBar;
 class TableRenderer;
 class TablePicker;
+class ActionRegistry;
 } // namespace ui
 } // namespace dtv
 
@@ -51,6 +52,7 @@ public:
     void updateTheme(int theme) override;
 
     void onCopyTriggered() override;
+    dtv::ui::ActionRegistry *actionRegistry() const { return m_actionRegistry.get(); }
 
 signals:
     void cancelRequested();
@@ -142,7 +144,7 @@ private:
 
     mutable QString m_iniPath;
     std::unique_ptr<QSettings> m_ini;
-    bool m_iniWriteWarned = false;
+    std::unique_ptr<dtv::ui::ActionRegistry> m_actionRegistry;
 };
 
 // Plugin entry point

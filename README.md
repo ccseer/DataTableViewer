@@ -83,6 +83,30 @@ Space on a file to preview it without opening a full application.
 SQLite support is statically linked into `datatableviewer.dll`; no separate
 SQLite runtime DLL is required in the plugin folder.
 
+## Configuration & Shortcuts
+
+Settings are stored in `DataTableViewer.ini` located in the plugin DLL directory. If the plugin directory is read-only, compiled defaults remain active.
+
+Keyboard shortcuts can be customized in the `[Shortcuts]` section:
+
+```ini
+[Shortcuts]
+DataTableViewer.find=Ctrl+F
+DataTableViewer.copy=Ctrl+C
+```
+
+### Action Reference
+
+| Action ID | Description | Default Shortcut |
+|---|---|---|
+| `DataTableViewer.find` | Focus and select search bar filter | `Ctrl+F` |
+| `DataTableViewer.copy` | Copy selected cells to clipboard | `Ctrl+C` |
+
+- **Storage & syntax:** Values use portable key sequence format (e.g., `Ctrl+F`, `Ctrl+Shift+C`).
+- **Fallback behavior:** Missing, empty, or unparsable keys fall back to their compiled defaults. If two actions share the same shortcut, a warning is logged once and both actions retain the assignment.
+- **Read timing:** Configuration is synchronized on viewer initialization and applies on the next file preview. Live in-flight shortcut refresh is not performed.
+- **Read-only directories:** When the plugin directory is read-only, default settings cannot be written to disk; compiled defaults remain active and a warning is logged once.
+
 ## Development Notes
 
 Operational project rules live in [AGENTS.md](AGENTS.md). Use it for architecture,

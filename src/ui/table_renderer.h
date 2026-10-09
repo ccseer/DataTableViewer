@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QPointer>
 #include <memory>
 #include <optional>
 #include <string>
@@ -12,6 +13,7 @@
 class QTableView;
 class QHeaderView;
 class QSettings;
+class QAction;
 
 namespace dtv {
 namespace ui {
@@ -39,6 +41,7 @@ public:
     bool isCellClamped(int modelRow, int modelCol) const;
     bool isSelectedCellClamped() const;
     void selectCell(int row, int col);
+    void setCopyAction(QAction *action);
 
     void setStateKey(const QString &key); // includes parser-format and table name
     void saveHeaderState(QSettings &settings) const;
@@ -85,6 +88,7 @@ private:
     Qt::SortOrder m_lastSortOrder = Qt::AscendingOrder;
     bool m_lastSortShown = false;
     bool m_pagedMode = false;
+    QPointer<QAction> m_copyAction;
 
     std::vector<core::RefetchKey> m_pageKeys;
     std::vector<std::vector<bool>> m_pageClamped;

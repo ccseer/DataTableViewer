@@ -66,6 +66,8 @@ set(WORKER_SOURCES
 
 set(UI_SOURCES
     src/ui/cell_text.h
+    src/ui/action_registry.h
+    src/ui/action_registry.cpp
     src/ui/page_bar.h
     src/ui/page_bar.cpp
     src/ui/search_bar.h
@@ -201,6 +203,16 @@ if(BUILD_TESTS)
     set_target_properties(test_viewer_paging PROPERTIES FOLDER "tests")
     add_test(NAME test_viewer_paging COMMAND test_viewer_paging)
     list(APPEND TABLE_TEST_TARGETS test_viewer_paging)
+
+    add_executable(test_action_registry tests/test_action_registry.cpp
+        src/ui/action_registry.h
+        src/ui/action_registry.cpp
+    )
+    target_include_directories(test_action_registry PRIVATE src/)
+    target_link_libraries(test_action_registry PRIVATE Qt6::Test Qt6::Widgets)
+    set_target_properties(test_action_registry PROPERTIES FOLDER "tests")
+    add_test(NAME test_action_registry COMMAND test_action_registry)
+    list(APPEND TABLE_TEST_TARGETS test_action_registry)
 
     add_custom_target(run_all_tests
         COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -E test_csv_large

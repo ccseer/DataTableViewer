@@ -29,7 +29,8 @@ public:
     void setData(std::shared_ptr<const core::TableData> data);
     void setPageData(std::shared_ptr<const core::TableData> data,
                      std::vector<core::RefetchKey> keys = {},
-                     std::vector<std::vector<bool>> clamped = {});
+                     std::vector<std::vector<bool>> clamped = {},
+                     int64_t rowOffset = 0);
     void clear();
 
     void setPagedMode(bool paged);
@@ -42,6 +43,9 @@ public:
     bool isSelectedCellClamped() const;
     void selectCell(int row, int col);
     void setCopyAction(QAction *action);
+    void setShowRowIndex(bool show);
+    bool showRowIndex() const { return m_showRowIndex; }
+    void updateTheme(bool dark, qreal dpr);
 
     void setStateKey(const QString &key); // includes parser-format and table name
     void saveHeaderState(QSettings &settings) const;
@@ -78,6 +82,7 @@ private slots:
 private:
     void setupView();
     void performCopy(bool isMarkdown);
+    void updateVerticalHeaderWidth();
 
     QTableView *m_view = nullptr;
     TableModel *m_model = nullptr;
@@ -88,6 +93,9 @@ private:
     Qt::SortOrder m_lastSortOrder = Qt::AscendingOrder;
     bool m_lastSortShown = false;
     bool m_pagedMode = false;
+    bool m_showRowIndex = true;
+    bool m_isDarkMode = false;
+    qreal m_dpr = 1.0;
     QPointer<QAction> m_copyAction;
 
     std::vector<core::RefetchKey> m_pageKeys;

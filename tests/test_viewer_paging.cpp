@@ -16,6 +16,7 @@
 #include <QStackedLayout>
 #include <QPushButton>
 #include <QHeaderView>
+#include <QTableView>
 #include <QLabel>
 #include <QFileInfo>
 #include <QCoreApplication>
@@ -45,6 +46,7 @@ private slots:
     void testClampedLongTextCopyRefetchesFullContent();
     void testEmptyPageNavigationPreservesStateAndToken();
     void testTextViewControlBarButton();
+    void testRowIndexColumn();
 
 private:
     std::unique_ptr<QTemporaryDir> m_tempDir;
@@ -106,8 +108,12 @@ void TestViewerPaging::setupViewer(DataTableViewer &viewer, const QString &path,
                                     ViewOptionsPrivate &optsPriv, ViewOptions &opts) {
     // Keep the page size and the settings file inside the test's temp dir so
     // neither the host configuration nor the plugin directory is touched.
-    viewer.m_pageSizeOverride = 500;
-    viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
+    if(!viewer.m_pageSizeOverride.has_value()) {
+        viewer.m_pageSizeOverride = 500;
+    }
+    if(!viewer.m_iniPathOverride.has_value()) {
+        viewer.m_iniPathOverride = m_tempDir->filePath("viewer.ini");
+    }
     optsPriv.path = path;
     optsPriv.viewer_type = viewer.name();
     optsPriv.theme = 1;
@@ -1206,6 +1212,139 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QVERIFY(viewTextAction != nullptr);
         QCOMPARE(viewTextAction->shortcut(), QKeySequence("Ctrl+Shift+T"));
         QVERIFY(viewTextAction->isEnabled());
+    }
+}
+
+void TestViewerPaging::testRowIndexColumn() {
+    // 1. Default row_index_b = true: vertical header is visible and reports 1-based data row numbers
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_smallDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
+        QVERIFY(viewer.m_renderer->showRowIndex());
+        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        QVERIFY(table != nullptr);
+        auto *vHeader = table->verticalHeader();
+        QVERIFY(vHeader != nullptr);
+        QVERIFY(!vHeader->isHidden());
+        QVERIFY(vHeader->width() > 0);
+
+        auto *model = viewer.m_renderer->model();
+        QVERIFY(model != nullptr);
+        QCOMPARE(model->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("1"));
+        QCOMPARE(model->headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("2"));
+        QCOMPARE(model->headerData(2, Qt::Vertical, Qt::DisplayRole).toString(), QString("3"));
+
+        // Copy 2x2 selection: payload must contain only cell data, no row numbers
+        auto *proxyModel = table->model();
+        QItemSelection sel(proxyModel->index(0, 0), proxyModel->index(1, 1));
+        table->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+        viewer.m_renderer->copyToClipboard();
+        QString clipboardText = QGuiApplication::clipboard()->text();
+        QVERIFY(!clipboardText.isEmpty());
+        // Must contain 2 columns per row ("id\tname"), isolating the vertical header
+        QStringList lines = clipboardText.split('\n', Qt::SkipEmptyParts);
+        QCOMPARE(lines.size(), 2);
+        QCOMPARE(lines[0], QString("1\tItem_1"));
+        QCOMPARE(lines[1], QString("2\tItem_2"));
+    }
+
+    // 2. Setting row_index_b = false in INI: vertical header stays hidden
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        const QString customIni = tempDir.filePath("no_row_index.ini");
+        {
+            QSettings settings(customIni, QSettings::IniFormat);
+            settings.setValue("row_index_b", false);
+            settings.sync();
+        }
+
+        DataTableViewer viewer;
+        viewer.m_iniPathOverride = customIni;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_smallDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
+        QVERIFY(!viewer.m_renderer->showRowIndex());
+        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        QVERIFY(table != nullptr);
+        auto *vHeader = table->verticalHeader();
+        QVERIFY(vHeader != nullptr);
+        QVERIFY(vHeader->isHidden());
+    }
+
+    // 3. Filtering: data-row numbering remains honest (non-contiguous)
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_smallDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+
+        // Filter for "Item_2" (matches Item_2 and Item_20..Item_29 -> 11 rows)
+        viewer.m_renderer->setFilter("Item_2", -1);
+        QTRY_COMPARE_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount(), 11, 2000);
+
+        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *vHeader = table->verticalHeader();
+        QVERIFY(!vHeader->isHidden());
+        // Source row indices produce non-contiguous vertical header numbering:
+        // Item_2 is source row 1 -> "2" (displayed at visual row 0);
+        // Item_20 is source row 19 -> "20" (displayed at visual row 1)
+        auto *proxyModel = table->model();
+        QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("2"));
+        QCOMPARE(proxyModel->headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("20"));
+    }
+
+    // 4. Paging: vertical header displays honest global row numbers across pages (e.g. 501..1000 on page 2)
+    {
+        // Not m_emptyPageDbPath: that fixture is truncated to 600 rows by
+        // testEmptyPageNavigationPreservesStateAndToken, and QtTest runs slots in
+        // declaration order, so it can no longer deliver a second full 500-row page.
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_1mDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+
+        viewer.loadSelectedTable(m_1mDbPath, "items");
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
+
+        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        QVERIFY(table != nullptr);
+        auto *proxyModel = table->model();
+        QVERIFY(proxyModel != nullptr);
+
+        // Page 1: rows 1..500
+        QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("1"));
+        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(), QString("500"));
+
+        // Navigate to Page 2
+        viewer.onNextPageClicked();
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 5000);
+        QCOMPARE(viewer.m_renderer->rowCount(), 500);
+
+        // Page 2: rows 501..1000
+        QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("501"));
+        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(), QString("1000"));
     }
 }
 

@@ -46,6 +46,9 @@ TableRenderer::TableRenderer(QWidget *parent) : QWidget(parent)
     });
     connect(m_proxy, &QAbstractItemModel::rowsInserted, this, [this] {
         emit filterCountChanged(m_proxy->filterMatchCount());
+        if(m_showRowIndex) {
+            updateVerticalHeaderWidth();
+        }
     });
 
     connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this,
@@ -68,9 +71,10 @@ void TableRenderer::setupView()
     m_view->horizontalHeader()->setSortIndicatorShown(false);
     m_view->horizontalHeader()->setStretchLastSection(false);
     m_view->horizontalHeader()->setSectionsMovable(true);
-    m_view->horizontalHeader()->setDefaultSectionSize(120);
-    m_view->verticalHeader()->setDefaultSectionSize(22);
-    m_view->verticalHeader()->hide();
+    m_view->horizontalHeader()->setDefaultSectionSize(qRound(120 * m_dpr));
+    m_view->verticalHeader()->setDefaultSectionSize(qRound(22 * m_dpr));
+    m_view->verticalHeader()->setVisible(m_showRowIndex);
+    m_view->verticalHeader()->setSectionsClickable(false);
     m_view->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_view->setAlternatingRowColors(true);
     m_view->setWordWrap(false);
@@ -92,17 +96,24 @@ void TableRenderer::setData(std::shared_ptr<const core::TableData> data)
     m_proxy->sort(-1); // Reset to original order
     m_model->setTableData(data, false);
     m_proxy->invalidate();
+    if(m_showRowIndex) {
+        updateVerticalHeaderWidth();
+    }
 }
 
 void TableRenderer::setPageData(std::shared_ptr<const core::TableData> data,
                                 std::vector<core::RefetchKey> keys,
-                                std::vector<std::vector<bool>> clamped)
+                                std::vector<std::vector<bool>> clamped,
+                                int64_t rowOffset)
 {
     m_pagedMode = true;
     m_pageKeys = std::move(keys);
     m_pageClamped = std::move(clamped);
-    m_model->setTableData(data, true);
+    m_model->setTableData(data, true, rowOffset);
     m_proxy->invalidate();
+    if(m_showRowIndex) {
+        updateVerticalHeaderWidth();
+    }
     if(m_view && m_model->rowCount() > 0) {
         m_view->scrollTo(m_proxy->index(0, 0), QAbstractItemView::PositionAtTop);
     }
@@ -465,6 +476,49 @@ void TableRenderer::setCopyAction(QAction *action)
                 m_copyAction->setEnabled(false);
             }
         });
+    }
+}
+
+void TableRenderer::setShowRowIndex(bool show)
+{
+    m_showRowIndex = show;
+    if(m_view && m_view->verticalHeader()) {
+        m_view->verticalHeader()->setVisible(show);
+        if(show) {
+            updateVerticalHeaderWidth();
+        }
+    }
+}
+
+void TableRenderer::updateVerticalHeaderWidth()
+{
+    if(!m_showRowIndex || !m_view || !m_model || !m_view->verticalHeader()) {
+        return;
+    }
+    int64_t maxRow = m_model->rowOffset() + (m_pagedMode ? m_model->rowCount() : m_model->totalRowCount());
+    if(maxRow <= 0) {
+        maxRow = 1;
+    }
+    QString maxStr = QString::number(maxRow);
+    int textWidth = m_view->verticalHeader()->fontMetrics().horizontalAdvance(maxStr);
+    int padding = qRound(16 * m_dpr);
+    m_view->verticalHeader()->setFixedWidth(textWidth + padding);
+}
+
+void TableRenderer::updateTheme(bool dark, qreal dpr)
+{
+    m_isDarkMode = dark;
+    m_dpr = dpr;
+    if(m_view) {
+        if(m_view->verticalHeader()) {
+            m_view->verticalHeader()->setDefaultSectionSize(qRound(22 * dpr));
+            if(m_showRowIndex) {
+                updateVerticalHeaderWidth();
+            }
+        }
+        if(m_view->horizontalHeader()) {
+            m_view->horizontalHeader()->setDefaultSectionSize(qRound(120 * dpr));
+        }
     }
 }
 

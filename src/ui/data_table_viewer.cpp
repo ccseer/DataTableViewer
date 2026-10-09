@@ -195,6 +195,10 @@ void DataTableViewer::init()
     if (!ini().contains("page_rows") && !ini().contains("DataTableViewer/page_rows")) {
         ini().setValue("page_rows", 500);
     }
+    bool showRowIndex = ini().value("row_index_b", true).toBool();
+    if (!ini().contains("row_index_b")) {
+        ini().setValue("row_index_b", true);
+    }
     m_actionRegistry->saveDefaultsIfMissing(ini());
     ini().sync();
     if (!s_iniWriteWarned && ini().status() != QSettings::NoError) {
@@ -203,6 +207,7 @@ void DataTableViewer::init()
     }
 
     m_renderer->setCopyAction(copyAction);
+    m_renderer->setShowRowIndex(showRowIndex);
     updateTextViewActionEnabled(!m_currentPath.isEmpty());
 }
 
@@ -276,6 +281,8 @@ void DataTableViewer::updateDPR(qreal r)
         m_pageBar->updateTheme(m_isDarkMode, r);
     if(m_picker)
         m_picker->updateTheme(m_isDarkMode, r);
+    if(m_renderer)
+        m_renderer->updateTheme(m_isDarkMode, r);
 
     if(layout()) {
         layout()->setSpacing(qRound(6 * r));
@@ -295,6 +302,8 @@ void DataTableViewer::updateTheme(int theme)
         m_pageBar->updateTheme(m_isDarkMode, m_dpr);
     if(m_picker)
         m_picker->updateTheme(m_isDarkMode, m_dpr);
+    if(m_renderer)
+        m_renderer->updateTheme(m_isDarkMode, m_dpr);
 
     reapplyStyles();
 }
@@ -708,7 +717,13 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 }
                 m_currentToken = result->token;
 
-                m_renderer->setPageData(result->data, result->keys, result->clamped);
+                int64_t rowCount = static_cast<int64_t>(result->data ? result->data->rows.size() : 0);
+                int64_t firstRow = rowCount > 0
+                                       ? dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize)
+                                       : 0;
+                int64_t rowOffset = firstRow > 0 ? (firstRow - 1) : 0;
+
+                m_renderer->setPageData(result->data, result->keys, result->clamped, rowOffset);
                 if(m_sorting && !m_recoveringSort) {
                     m_committedSort = m_pendingSort;
                     m_pendingSort.reset();
@@ -730,10 +745,6 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                     m_status->setPagedMode(true);
                 }
 
-                int64_t rowCount = static_cast<int64_t>(result->data->rows.size());
-                int64_t firstRow = rowCount > 0
-                                       ? dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize)
-                                       : 0;
                 int64_t lastRow = rowCount > 0 ? firstRow + rowCount - 1 : 0;
 
                 m_status->setPagedLoadInfo(firstRow, lastRow, m_pagerState.total, m_colCount,

@@ -19,10 +19,12 @@ QString TableModel::singleLineDisplayText(const std::string &cell)
     return dtv::ui::singleLineDisplayText(cell);
 }
 
-void TableModel::setTableData(std::shared_ptr<const core::TableData> data, bool loadAll)
+void TableModel::setTableData(std::shared_ptr<const core::TableData> data, bool loadAll,
+                              int64_t rowOffset)
 {
     beginResetModel();
     m_data = data;
+    m_rowOffset = rowOffset;
     m_loadedRows = 0;
     if(m_data && loadAll) {
         m_loadedRows = static_cast<int>(m_data->rows.size());
@@ -32,6 +34,21 @@ void TableModel::setTableData(std::shared_ptr<const core::TableData> data, bool 
     if(m_data && !loadAll && canFetchMore({})) {
         fetchMore({});
     }
+}
+
+void TableModel::setRowOffset(int64_t offset)
+{
+    if(m_rowOffset != offset) {
+        m_rowOffset = offset;
+        if(m_loadedRows > 0) {
+            emit headerDataChanged(Qt::Vertical, 0, m_loadedRows - 1);
+        }
+    }
+}
+
+int TableModel::totalRowCount() const
+{
+    return m_data ? static_cast<int>(m_data->rows.size()) : 0;
 }
 
 int TableModel::rowCount(const QModelIndex &parent) const
@@ -93,9 +110,16 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
 
 QVariant TableModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if(orientation == Qt::Horizontal && role == Qt::DisplayRole && m_data) {
+    if(!m_data)
+        return {};
+
+    if(orientation == Qt::Horizontal && role == Qt::DisplayRole) {
         if(section >= 0 && section < static_cast<int>(m_data->columns.size())) {
             return QString::fromStdString(m_data->columns[section].name);
+        }
+    } else if(orientation == Qt::Vertical && role == Qt::DisplayRole) {
+        if(section >= 0 && section < static_cast<int>(m_data->rows.size())) {
+            return QString::number(m_rowOffset + section + 1);
         }
     }
     return {};

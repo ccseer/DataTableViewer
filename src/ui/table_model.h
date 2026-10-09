@@ -15,7 +15,11 @@ public:
 
     explicit TableModel(QObject *parent = nullptr);
 
-    void setTableData(std::shared_ptr<const core::TableData> data, bool loadAll = false);
+    void setTableData(std::shared_ptr<const core::TableData> data, bool loadAll = false,
+                      int64_t rowOffset = 0);
+    void setRowOffset(int64_t offset);
+    int64_t rowOffset() const { return m_rowOffset; }
+    int totalRowCount() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -31,6 +35,7 @@ public:
 private:
     std::shared_ptr<const core::TableData> m_data;
     int m_loadedRows = 0;
+    int64_t m_rowOffset = 0;
 };
 
 } // namespace ui

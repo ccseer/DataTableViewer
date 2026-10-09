@@ -187,6 +187,10 @@ void DataTableViewer::init()
         onCopyTriggered();
     });
 
+    m_actionRegistry->registerAction("DataTableViewer.viewText", tr("View in Text viewer"), QKeySequence("Ctrl+Alt+T"), [this] {
+        onTextViewBtnClicked();
+    });
+
     // Seed default configuration into DataTableViewer.ini if missing so users can discover and edit it
     if (!ini().contains("page_rows") && !ini().contains("DataTableViewer/page_rows")) {
         ini().setValue("page_rows", 500);
@@ -199,6 +203,19 @@ void DataTableViewer::init()
     }
 
     m_renderer->setCopyAction(copyAction);
+    updateTextViewActionEnabled(!m_currentPath.isEmpty());
+}
+
+void DataTableViewer::updateTextViewActionEnabled(bool enabled)
+{
+    if(m_btnTextView) {
+        m_btnTextView->setEnabled(enabled);
+    }
+    if(m_actionRegistry) {
+        if(auto *act = m_actionRegistry->action("DataTableViewer.viewText")) {
+            act->setEnabled(enabled);
+        }
+    }
 }
 
 void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar)
@@ -223,10 +240,15 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
         m_btnTextView = new QPushButton(this);
         m_btnTextView->setObjectName("textViewBtn");
         m_btnTextView->setFlat(true);
-        m_btnTextView->setToolTip(tr("View in Text viewer"));
         m_btnTextView->setFocusPolicy(Qt::NoFocus);
         m_btnTextView->setCursor(Qt::PointingHandCursor);
         connect(m_btnTextView, &QPushButton::clicked, this, &DataTableViewer::onTextViewBtnClicked);
+    }
+    const QString shortcutHint = m_actionRegistry ? m_actionRegistry->shortcutNativeText("DataTableViewer.viewText") : QString();
+    if(!shortcutHint.isEmpty()) {
+        m_btnTextView->setToolTip(tr("View in Text viewer (%1)").arg(shortcutHint));
+    } else {
+        m_btnTextView->setToolTip(tr("View in Text viewer"));
     }
     if(lay_ctrlbar && lay_ctrlbar->indexOf(m_btnTextView) == -1) {
         lay_ctrlbar->addStretch();
@@ -234,9 +256,7 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
     }
 
     m_currentPath = options()->path();
-    if(m_btnTextView) {
-        m_btnTextView->setEnabled(!m_currentPath.isEmpty());
-    }
+    updateTextViewActionEnabled(!m_currentPath.isEmpty());
     updateTheme(options()->theme());
     updateDPR(options()->dpr());
 
@@ -438,9 +458,7 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     cancelPending();
 
     m_sourcePath = path;
-    if(m_btnTextView) {
-        m_btnTextView->setEnabled(!path.isEmpty());
-    }
+    updateTextViewActionEnabled(!path.isEmpty());
 
     m_renderer->clear();
     m_search->clear();
@@ -515,9 +533,7 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_isPaged = true;
     m_firstPagePending = true;
     m_sourcePath = path;
-    if(m_btnTextView) {
-        m_btnTextView->setEnabled(!path.isEmpty());
-    }
+    updateTextViewActionEnabled(!path.isEmpty());
     m_sourceTable = tableName;
     m_countRequested = false;
     m_pendingPage = 1;

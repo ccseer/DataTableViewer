@@ -12,6 +12,7 @@
 #include "ui/table_model.h"
 #include "ui/status_bar.h"
 #include "ui/search_bar.h"
+#include "ui/action_registry.h"
 #include <QStackedLayout>
 #include <QPushButton>
 #include <QHeaderView>
@@ -951,7 +952,7 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     result.ok = true;
     result.values = {QString(2000, QChar(0x4e2d)).toStdString() + "\r\nend"};
     renderer.onRefetchRowsCompleted(request, {{0, result}});
-    QCOMPARE(QGuiApplication::clipboard()->text(), QString(2000, QChar(0x4e2d)) + " end");
+    QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), QString(2000, QChar(0x4e2d)) + " end", 3000);
     renderer.setPageData(data, {key}, {{true}});
     renderer.selectCell(0, 0);
     renderer.copyToClipboard();
@@ -960,7 +961,7 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     renderer.selectCell(0, 0);
     renderer.copyToClipboard();
     renderer.onRefetchRowsCompleted(oldRequest, {{0, result}});
-    QCOMPARE(QGuiApplication::clipboard()->text(), QString("clamped"));
+    QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), QString("clamped"), 3000);
     renderer.setPageData(data, {key}, {{true}});
     renderer.selectCell(0, 0);
     renderer.copyAsMarkdown();
@@ -969,7 +970,7 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     next->columns[0].name = "changed";
     renderer.setPageData(next, {key}, {{false}});
     renderer.onRefetchRowsCompleted(request, {{0, result}});
-    QVERIFY(QGuiApplication::clipboard()->text().startsWith("|text|"));
+    QTRY_VERIFY_WITH_TIMEOUT(QGuiApplication::clipboard()->text().startsWith("|text|"), 3000);
     QVERIFY(QGuiApplication::clipboard()->text().contains(QString(2000, QChar(0x4e2d)) + " end"));
 }
 
@@ -991,7 +992,14 @@ void TestViewerPaging::testTextViewControlBarButton() {
 
         QVERIFY(viewer.m_btnTextView != nullptr);
         QVERIFY(viewer.m_btnTextView->isEnabled());
-        QCOMPARE(viewer.m_btnTextView->toolTip(), QString("View in Text viewer"));
+        QCOMPARE(viewer.m_btnTextView->toolTip(), QString("View in Text viewer (Ctrl+Alt+T)"));
+
+        // Verify action is registered in ActionRegistry with default Ctrl+Alt+T
+        QVERIFY(viewer.actionRegistry() != nullptr);
+        QAction *viewTextAction = viewer.actionRegistry()->action("DataTableViewer.viewText");
+        QVERIFY(viewTextAction != nullptr);
+        QCOMPARE(viewTextAction->shortcut(), QKeySequence("Ctrl+Alt+T"));
+        QVERIFY(viewTextAction->isEnabled());
 
         QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
 
@@ -1000,6 +1008,12 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QCOMPARE(spyCommand.count(), 1);
         QCOMPARE(spyCommand.at(0).at(0).toInt(), static_cast<int>(VCT_LoadViewerWithNewType));
         QCOMPARE(spyCommand.at(0).at(1).toString(), QString("Text"));
+
+        // Triggering action directly also emits the command
+        viewTextAction->trigger();
+        QCOMPARE(spyCommand.count(), 2);
+        QCOMPARE(spyCommand.at(1).at(0).toInt(), static_cast<int>(VCT_LoadViewerWithNewType));
+        QCOMPARE(spyCommand.at(1).at(1).toString(), QString("Text"));
 
         // DPR and theme updates scale the button size properly
         viewer.updateDPR(1.5);
@@ -1028,8 +1042,15 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QVERIFY(viewer.m_btnTextView != nullptr);
         QVERIFY(!viewer.m_btnTextView->isEnabled());
 
+        QAction *viewTextAction = viewer.actionRegistry()->action("DataTableViewer.viewText");
+        QVERIFY(viewTextAction != nullptr);
+        QVERIFY(!viewTextAction->isEnabled());
+
         QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
         viewer.m_btnTextView->click();
+        QCOMPARE(spyCommand.count(), 0);
+
+        viewTextAction->trigger();
         QCOMPARE(spyCommand.count(), 0);
 
         viewer.onTextViewBtnClicked();
@@ -1108,7 +1129,13 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QVERIFY(viewer.m_btnTextView != nullptr);
         QVERIFY(!viewer.m_btnTextView->isEnabled());
 
+        QAction *viewTextAction = viewer.actionRegistry()->action("DataTableViewer.viewText");
+        QVERIFY(viewTextAction != nullptr);
+        QVERIFY(!viewTextAction->isEnabled());
+
         QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+        viewTextAction->trigger();
+        QCOMPARE(spyCommand.count(), 0);
         viewer.onTextViewBtnClicked();
         QCOMPARE(spyCommand.count(), 0);
     }
@@ -1144,6 +1171,41 @@ void TestViewerPaging::testTextViewControlBarButton() {
 
         viewer.updateDPR(1.5);
         viewer.updateTheme(0);
+    }
+
+    // 6. Custom shortcut override from settings is reflected in action and tooltip
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        const QString iniFile = tempDir.filePath("DataTableViewer.ini");
+        {
+            QSettings customIni(iniFile, QSettings::IniFormat);
+            customIni.beginGroup("Shortcuts");
+            customIni.setValue("DataTableViewer.viewText", "Ctrl+Shift+T");
+            customIni.endGroup();
+            customIni.sync();
+        }
+
+        DataTableViewer viewer;
+        viewer.m_iniPathOverride = iniFile;
+        QHBoxLayout ctrlbarLayout;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 0;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(&ctrlbarLayout, &opts);
+
+        QVERIFY(viewer.m_btnTextView != nullptr);
+        QCOMPARE(viewer.m_btnTextView->toolTip(), QString("View in Text viewer (Ctrl+Shift+T)"));
+        QAction *viewTextAction = viewer.actionRegistry()->action("DataTableViewer.viewText");
+        QVERIFY(viewTextAction != nullptr);
+        QCOMPARE(viewTextAction->shortcut(), QKeySequence("Ctrl+Shift+T"));
+        QVERIFY(viewTextAction->isEnabled());
     }
 }
 

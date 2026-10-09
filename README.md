@@ -93,6 +93,7 @@ Keyboard shortcuts can be customized in the `[Shortcuts]` section:
 [Shortcuts]
 DataTableViewer.find=Ctrl+F
 DataTableViewer.copy=Ctrl+C
+DataTableViewer.viewText=Ctrl+Alt+T
 ```
 
 ### Action Reference
@@ -101,6 +102,7 @@ DataTableViewer.copy=Ctrl+C
 |---|---|---|
 | `DataTableViewer.find` | Focus and select search bar filter | `Ctrl+F` |
 | `DataTableViewer.copy` | Copy selected cells to clipboard | `Ctrl+C` |
+| `DataTableViewer.viewText` | Open current file in Seer Text viewer | `Ctrl+Alt+T` |
 
 - **Storage & syntax:** Values use portable key sequence format (e.g., `Ctrl+F`, `Ctrl+Shift+C`).
 - **Fallback behavior:** Missing, empty, or unparsable keys fall back to their compiled defaults. If two actions share the same shortcut, a warning is logged once and both actions retain the assignment.

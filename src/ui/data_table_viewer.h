@@ -77,6 +77,7 @@ private:
     void recoverSort();
     void finishSortRecovery();
     void init();
+    void updateTextViewActionEnabled(bool enabled);
     void cancelPending();
     void reapplyStyles();
     QString makeKey(const QString &format, const QString &table) const;

@@ -10,6 +10,7 @@
 #include <functional>
 
 #include <QElapsedTimer>
+#include <QPointer>
 
 class QStackedLayout;
 class QPushButton;
@@ -69,6 +70,7 @@ private slots:
     void onPrevPageClicked();
     void onNextPageClicked();
     void onLastPageClicked();
+    void onTextViewBtnClicked();
 
 private:
     void failSortRecovery(const QString &error);
@@ -95,6 +97,10 @@ private:
     dtv::ui::TablePicker *m_picker = nullptr;
     QStackedLayout *m_stack = nullptr;
     QPushButton *m_backBtn = nullptr;
+    // QPointer because this button is handed to the host-provided control-bar
+    // layout, which may take ownership of it; m_backBtn above is inserted into
+    // the plugin's own search layout and is owned by this widget's tree.
+    QPointer<QPushButton> m_btnTextView;
 
     QString m_currentPath;
     int m_generation = 0;

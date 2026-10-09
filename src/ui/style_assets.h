@@ -41,6 +41,12 @@ inline constexpr auto g_svg_search = R"SVG(
   <path fill="currentColor" d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
 </svg>)SVG";
 
+// Material Symbol: "Article" (text view button)
+inline constexpr auto g_svg_article = R"SVG(
+<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
+  <path fill="currentColor" d="M312-300h336v-44H312v44Zm0-160h336v-44H312v44Zm0-160h336v-44H312v44ZM228-156q-29.7 0-50.85-21.15Q156-198.3 156-228v-504q0-29.7 21.15-50.85Q198.3-804 228-804h504q29.7 0 50.85 21.15Q804-761.7 804-732v504q0 29.7-21.15 50.85Q761.7-156 732-156H228Zm0-72h504v-504H228v504Zm0 0v-504 504Z"/>
+</svg>)SVG";
+
 // Material Symbol: "Info" Rounded, Outline
 inline constexpr auto g_svg_info = R"SVG(
 <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24">
@@ -136,6 +142,9 @@ inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor,
         pix.fill(Qt::transparent);
         QPainter p(&pix);
         p.setRenderHint(QPainter::Antialiasing);
+        if(c.alpha() < 255) {
+            p.setOpacity(c.alphaF());
+        }
         renderer.render(&p);
         return pix;
     };
@@ -161,6 +170,11 @@ inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor,
     icon.addPixmap(render(disabledColor), QIcon::Disabled, QIcon::Off);
 
     return icon;
+}
+
+inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor, int iconSz = 20)
+{
+    return createMultiStateIcon(data, normalColor, normalColor, iconSz);
 }
 
 inline QIcon createIcon(const char *data, const QColor &color, int iconSz = 20)

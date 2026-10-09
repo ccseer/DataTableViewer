@@ -216,7 +216,27 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
         slay->insertWidget(0, m_backBtn);
     }
 
+    // The button is created unconditionally so a viewer loaded without a
+    // control bar still owns it and its action stays reachable; only the
+    // attachment to the host-provided layout is conditional.
+    if(!m_btnTextView) {
+        m_btnTextView = new QPushButton(this);
+        m_btnTextView->setObjectName("textViewBtn");
+        m_btnTextView->setFlat(true);
+        m_btnTextView->setToolTip(tr("View in Text viewer"));
+        m_btnTextView->setFocusPolicy(Qt::NoFocus);
+        m_btnTextView->setCursor(Qt::PointingHandCursor);
+        connect(m_btnTextView, &QPushButton::clicked, this, &DataTableViewer::onTextViewBtnClicked);
+    }
+    if(lay_ctrlbar && lay_ctrlbar->indexOf(m_btnTextView) == -1) {
+        lay_ctrlbar->addStretch();
+        lay_ctrlbar->addWidget(m_btnTextView);
+    }
+
     m_currentPath = options()->path();
+    if(m_btnTextView) {
+        m_btnTextView->setEnabled(!m_currentPath.isEmpty());
+    }
     updateTheme(options()->theme());
     updateDPR(options()->dpr());
 
@@ -247,16 +267,24 @@ void DataTableViewer::updateDPR(qreal r)
 void DataTableViewer::updateTheme(int theme)
 {
     m_isDarkMode = (theme == 1);
-    m_search->updateTheme(m_isDarkMode);
-    m_status->updateTheme(m_isDarkMode, m_dpr);
-    m_pageBar->updateTheme(m_isDarkMode, m_dpr);
-    m_picker->updateTheme(m_isDarkMode, m_dpr);
+    if(m_search)
+        m_search->updateTheme(m_isDarkMode);
+    if(m_status)
+        m_status->updateTheme(m_isDarkMode, m_dpr);
+    if(m_pageBar)
+        m_pageBar->updateTheme(m_isDarkMode, m_dpr);
+    if(m_picker)
+        m_picker->updateTheme(m_isDarkMode, m_dpr);
+
     reapplyStyles();
 }
 
 void DataTableViewer::reapplyStyles()
 {
     using namespace dtv::ui;
+    if(!m_search || !m_status || !m_backBtn)
+        return;
+
     const char *surface = m_isDarkMode ? Colors::DarkSurface : Colors::LightSurface;
     const char *border = m_isDarkMode ? Colors::DarkBorder : Colors::LightBorder;
     const char *input = m_isDarkMode ? Colors::DarkInput : Colors::LightInput;
@@ -280,6 +308,20 @@ void DataTableViewer::reapplyStyles()
                              "border-radius: 5px; }"
                              "QPushButton:hover { background-color: rgba(128, 128, 128, 36); }"
                              "QPushButton:pressed { background-color: rgba(128, 128, 128, 58); }");
+
+    if(m_btnTextView) {
+        constexpr int ctrlbar_btn_sz = 30;
+        constexpr int ctrlbar_btn_icon_sz = 24;
+        int iconPixelSize = qRound(ctrlbar_btn_icon_sz * m_dpr);
+        m_btnTextView->setFixedSize(qRound(ctrlbar_btn_sz * m_dpr), qRound(ctrlbar_btn_sz * m_dpr));
+        m_btnTextView->setIconSize(QSize(iconPixelSize, iconPixelSize));
+        m_btnTextView->setIcon(createMultiStateIcon(g_svg_article, iconColor, iconPixelSize));
+        m_btnTextView->setStyleSheet(QString(
+            "QPushButton#textViewBtn { border: none; background: transparent; border-radius: %1px; }"
+            "QPushButton#textViewBtn:hover { background-color: rgba(128, 128, 128, 36); }"
+            "QPushButton#textViewBtn:pressed { background-color: rgba(128, 128, 128, 58); }")
+            .arg(qRound(4 * m_dpr)));
+    }
 }
 
 void DataTableViewer::cancelPending()
@@ -395,6 +437,11 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
 {
     cancelPending();
 
+    m_sourcePath = path;
+    if(m_btnTextView) {
+        m_btnTextView->setEnabled(!path.isEmpty());
+    }
+
     m_renderer->clear();
     m_search->clear();
     m_search->setPagedMode(false);
@@ -468,6 +515,9 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_isPaged = true;
     m_firstPagePending = true;
     m_sourcePath = path;
+    if(m_btnTextView) {
+        m_btnTextView->setEnabled(!path.isEmpty());
+    }
     m_sourceTable = tableName;
     m_countRequested = false;
     m_pendingPage = 1;
@@ -976,4 +1026,13 @@ void DataTableViewer::onCopyTriggered()
     if(m_renderer && m_stack->currentWidget() == m_renderer) {
         m_renderer->copyToClipboard();
     }
+}
+
+void DataTableViewer::onTextViewBtnClicked()
+{
+    // The host resolves the path and performs the swap; the plugin only emits
+    // the viewer name. The guard keeps an empty-path viewer from emitting.
+    if(m_sourcePath.isEmpty() && m_currentPath.isEmpty())
+        return;
+    emit sigCommand(VCT_LoadViewerWithNewType, QString("Text"));
 }

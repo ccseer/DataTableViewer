@@ -43,6 +43,7 @@ private slots:
     void testLargeTableRowRangeDoesNotOverflow();
     void testClampedLongTextCopyRefetchesFullContent();
     void testEmptyPageNavigationPreservesStateAndToken();
+    void testTextViewControlBarButton();
 
 private:
     std::unique_ptr<QTemporaryDir> m_tempDir;
@@ -970,6 +971,180 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     renderer.onRefetchRowsCompleted(request, {{0, result}});
     QVERIFY(QGuiApplication::clipboard()->text().startsWith("|text|"));
     QVERIFY(QGuiApplication::clipboard()->text().contains(QString(2000, QChar(0x4e2d)) + " end"));
+}
+
+void TestViewerPaging::testTextViewControlBarButton() {
+    // 1. With control bar and valid path: button created, enabled, emits VCT_LoadViewerWithNewType "Text"
+    {
+        DataTableViewer viewer;
+        QHBoxLayout ctrlbarLayout;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 1;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(&ctrlbarLayout, &opts);
+
+        QVERIFY(viewer.m_btnTextView != nullptr);
+        QVERIFY(viewer.m_btnTextView->isEnabled());
+        QCOMPARE(viewer.m_btnTextView->toolTip(), QString("View in Text viewer"));
+
+        QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+
+        viewer.m_btnTextView->click();
+
+        QCOMPARE(spyCommand.count(), 1);
+        QCOMPARE(spyCommand.at(0).at(0).toInt(), static_cast<int>(VCT_LoadViewerWithNewType));
+        QCOMPARE(spyCommand.at(0).at(1).toString(), QString("Text"));
+
+        // DPR and theme updates scale the button size properly
+        viewer.updateDPR(1.5);
+        QCOMPARE(viewer.m_btnTextView->width(), qRound(30 * 1.5));
+        QCOMPARE(viewer.m_btnTextView->iconSize(), QSize(qRound(24 * 1.5), qRound(24 * 1.5)));
+        QVERIFY(!viewer.m_btnTextView->icon().availableSizes().isEmpty());
+        QCOMPARE(viewer.m_btnTextView->icon().availableSizes().first(), QSize(qRound(24 * 1.5), qRound(24 * 1.5)));
+        viewer.updateTheme(1); // Dark theme
+    }
+
+    // 2. Disabled state with empty path
+    {
+        DataTableViewer viewer;
+        QHBoxLayout ctrlbarLayout;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = "";
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 1;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(&ctrlbarLayout, &opts);
+
+        QVERIFY(viewer.m_btnTextView != nullptr);
+        QVERIFY(!viewer.m_btnTextView->isEnabled());
+
+        QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+        viewer.m_btnTextView->click();
+        QCOMPARE(spyCommand.count(), 0);
+
+        viewer.onTextViewBtnClicked();
+        QCOMPARE(spyCommand.count(), 0);
+
+        // Verify disabled icon has dimmed opacity (alpha <= 105)
+        QImage normalImg = viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Normal).toImage();
+        bool foundOpaqueInNormal = false;
+        for(int y = 0; y < normalImg.height(); ++y) {
+            for(int x = 0; x < normalImg.width(); ++x) {
+                if(qAlpha(normalImg.pixel(x, y)) > 200) {
+                    foundOpaqueInNormal = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY(foundOpaqueInNormal);
+
+        QImage disabledImg = viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Disabled).toImage();
+        bool foundOver105InDisabled = false;
+        for(int y = 0; y < disabledImg.height(); ++y) {
+            for(int x = 0; x < disabledImg.width(); ++x) {
+                if(qAlpha(disabledImg.pixel(x, y)) > 105) {
+                    foundOver105InDisabled = true;
+                    break;
+                }
+            }
+        }
+        QVERIFY(!foundOver105InDisabled);
+    }
+
+    // 3. Null control bar: the button still exists and stays usable, the action
+    //    is reachable and emits, and nothing crashes when the layout is absent.
+    {
+        DataTableViewer viewer;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 1;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(nullptr, &opts);
+
+        // Created unconditionally, merely not attached to a layout.
+        QVERIFY(viewer.m_btnTextView != nullptr);
+        QCOMPARE(viewer.m_btnTextView->parentWidget(), static_cast<QWidget *>(&viewer));
+        QVERIFY(viewer.m_btnTextView->isEnabled());
+
+        QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+        viewer.onTextViewBtnClicked();
+        QCOMPARE(spyCommand.count(), 1);
+        QCOMPARE(spyCommand.at(0).at(1).toString(), QString("Text"));
+
+        viewer.updateDPR(2.0);
+        viewer.updateTheme(0);
+        QCOMPARE(viewer.m_btnTextView->width(), qRound(30 * 2.0));
+    }
+
+    // 3b. Null control bar with an empty path: action stays disabled and silent.
+    {
+        DataTableViewer viewer;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = "";
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 1;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(nullptr, &opts);
+
+        QVERIFY(viewer.m_btnTextView != nullptr);
+        QVERIFY(!viewer.m_btnTextView->isEnabled());
+
+        QSignalSpy spyCommand(&viewer, &ViewerBase::sigCommand);
+        viewer.onTextViewBtnClicked();
+        QCOMPARE(spyCommand.count(), 0);
+    }
+
+    // 4. Pre-init updateDPR/updateTheme does not crash
+    {
+        DataTableViewer viewer;
+        viewer.updateDPR(1.5);
+        viewer.updateTheme(0);
+        viewer.updateTheme(1);
+    }
+
+    // 5. External deletion of m_btnTextView zeroes the QPointer and the later
+    //    refreshes stay safe. Nothing in the plugin deletes the button; this
+    //    probes the guard robustness, not a teardown path the plugin performs.
+    {
+        DataTableViewer viewer;
+        QHBoxLayout ctrlbarLayout;
+
+        ViewOptionsPrivate optsPriv;
+        optsPriv.path = m_smallDbPath;
+        optsPriv.viewer_type = viewer.name();
+        optsPriv.theme = 1;
+        optsPriv.dpr = 1.0;
+        ViewOptions opts;
+        opts.d_ptr = &optsPriv;
+
+        viewer.load(&ctrlbarLayout, &opts);
+        QVERIFY(viewer.m_btnTextView != nullptr);
+
+        delete viewer.m_btnTextView.data();
+        QVERIFY(viewer.m_btnTextView == nullptr);
+
+        viewer.updateDPR(1.5);
+        viewer.updateTheme(0);
+    }
 }
 
 QTEST_MAIN(TestViewerPaging)

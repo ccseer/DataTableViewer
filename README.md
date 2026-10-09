@@ -111,8 +111,3 @@ DataTableViewer.copy=Ctrl+C
 
 Operational project rules live in [AGENTS.md](AGENTS.md). Use it for architecture,
 format registration, lifecycle, threading, and release-check expectations.
-
-
-
-## TODO: 
-- control bar btn: view in Text viewer

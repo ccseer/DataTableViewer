@@ -16,7 +16,8 @@ public:
     InterruptHandle(const InterruptHandle &) = delete;
     InterruptHandle &operator=(const InterruptHandle &) = delete;
 
-    uint64_t interrupt() {
+    uint64_t interrupt()
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         ++m_sequence;
         if(m_db) {
@@ -25,21 +26,25 @@ public:
         return m_sequence;
     }
 
-    void setDb(sqlite3 *db) {
+    void setDb(sqlite3 *db)
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_db = db;
     }
 
-    void clear() {
+    void clear()
+    {
         setDb(nullptr);
     }
 
-    sqlite3 *db() const {
+    sqlite3 *db() const
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_db;
     }
 
-    uint64_t sequence() const {
+    uint64_t sequence() const
+    {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_sequence;
     }

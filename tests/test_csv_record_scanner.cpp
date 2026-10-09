@@ -26,8 +26,8 @@ private:
         dtv::parsers::CsvRecordScanner::Callbacks cb;
         cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
             currentCell.append(fragment.data(), fragment.size());
-            if (isEnd) {
-                if (colIndex >= current.fields.size()) {
+            if(isEnd) {
+                if(colIndex >= current.fields.size()) {
                     current.fields.resize(colIndex + 1);
                 }
                 current.fields[colIndex] = std::move(currentCell);
@@ -46,11 +46,11 @@ private:
 
         dtv::parsers::CsvRecordScanner scanner(delimiter, std::move(cb));
 
-        if (chunkSize == 0 || chunkSize >= input.size()) {
+        if(chunkSize == 0 || chunkSize >= input.size()) {
             scanner.feed(input, 0, true);
         } else {
             uint64_t offset = 0;
-            while (offset < input.size()) {
+            while(offset < input.size()) {
                 size_t len = std::min(chunkSize, input.size() - offset);
                 bool isEof = (offset + len >= input.size());
                 scanner.feed(input.substr(offset, len), offset, isEof);
@@ -73,8 +73,9 @@ private slots:
         QCOMPARE(records[0].ordinal, 0ull);
         QCOMPARE(records[0].startOffset, 0ull);
         QCOMPARE(records[0].endOffset, 11ull);
-        QCOMPARE(input.substr(records[0].startOffset, records[0].endOffset - records[0].startOffset),
-                 std::string("id,name,age"));
+        QCOMPARE(
+            input.substr(records[0].startOffset, records[0].endOffset - records[0].startOffset),
+            std::string("id,name,age"));
         QCOMPARE(records[0].fields.size(), 3ull);
         QCOMPARE(records[0].fields[0], std::string("id"));
         QCOMPARE(records[0].fields[1], std::string("name"));
@@ -84,8 +85,9 @@ private slots:
         QCOMPARE(records[1].ordinal, 1ull);
         QCOMPARE(records[1].startOffset, 12ull);
         QCOMPARE(records[1].endOffset, 22ull);
-        QCOMPARE(input.substr(records[1].startOffset, records[1].endOffset - records[1].startOffset),
-                 std::string("1,Alice,30"));
+        QCOMPARE(
+            input.substr(records[1].startOffset, records[1].endOffset - records[1].startOffset),
+            std::string("1,Alice,30"));
         QCOMPARE(records[1].fields[1], std::string("Alice"));
         QCOMPARE(records[1].fields[2], std::string("30"));
 
@@ -106,20 +108,23 @@ private slots:
         // Record 0 (CRLF)
         QCOMPARE(records[0].startOffset, 0ull);
         QCOMPARE(records[0].endOffset, 3ull);
-        QCOMPARE(input.substr(records[0].startOffset, records[0].endOffset - records[0].startOffset),
-                 std::string("a,b"));
+        QCOMPARE(
+            input.substr(records[0].startOffset, records[0].endOffset - records[0].startOffset),
+            std::string("a,b"));
 
         // Record 1 (CR)
         QCOMPARE(records[1].startOffset, 5ull);
         QCOMPARE(records[1].endOffset, 8ull);
-        QCOMPARE(input.substr(records[1].startOffset, records[1].endOffset - records[1].startOffset),
-                 std::string("1,2"));
+        QCOMPARE(
+            input.substr(records[1].startOffset, records[1].endOffset - records[1].startOffset),
+            std::string("1,2"));
 
         // Record 2 (LF)
         QCOMPARE(records[2].startOffset, 9ull);
         QCOMPARE(records[2].endOffset, 12ull);
-        QCOMPARE(input.substr(records[2].startOffset, records[2].endOffset - records[2].startOffset),
-                 std::string("3,4"));
+        QCOMPARE(
+            input.substr(records[2].startOffset, records[2].endOffset - records[2].startOffset),
+            std::string("3,4"));
     }
 
     void testQuotedCsvWithDoubledQuotes()
@@ -169,15 +174,15 @@ private slots:
 
         // Test chunk sizes: 1, 2, 3, 5, 7, 11
         const std::vector<size_t> chunkSizes = {1, 2, 3, 5, 7, 11};
-        for (size_t cs : chunkSizes) {
+        for(size_t cs : chunkSizes) {
             auto actual = scanAll(input, ',', cs);
             QCOMPARE(actual.size(), expected.size());
-            for (size_t i = 0; i < expected.size(); ++i) {
+            for(size_t i = 0; i < expected.size(); ++i) {
                 QCOMPARE(actual[i].ordinal, expected[i].ordinal);
                 QCOMPARE(actual[i].startOffset, expected[i].startOffset);
                 QCOMPARE(actual[i].endOffset, expected[i].endOffset);
                 QCOMPARE(actual[i].fields.size(), expected[i].fields.size());
-                for (size_t j = 0; j < expected[i].fields.size(); ++j) {
+                for(size_t j = 0; j < expected[i].fields.size(); ++j) {
                     QCOMPARE(actual[i].fields[j], expected[i].fields[j]);
                 }
             }
@@ -332,8 +337,9 @@ private slots:
         dtv::parsers::CsvRecordScanner::Callbacks cb;
         cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
             currentCell.append(fragment.data(), fragment.size());
-            if (isEnd) {
-                if (colIndex >= current.fields.size()) current.fields.resize(colIndex + 1);
+            if(isEnd) {
+                if(colIndex >= current.fields.size())
+                    current.fields.resize(colIndex + 1);
                 current.fields[colIndex] = std::move(currentCell);
                 currentCell.clear();
             }
@@ -372,8 +378,9 @@ private slots:
         dtv::parsers::CsvRecordScanner::Callbacks cb;
         cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
             currentCell.append(fragment.data(), fragment.size());
-            if (isEnd) {
-                if (colIndex >= current.fields.size()) current.fields.resize(colIndex + 1);
+            if(isEnd) {
+                if(colIndex >= current.fields.size())
+                    current.fields.resize(colIndex + 1);
                 current.fields[colIndex] = std::move(currentCell);
                 currentCell.clear();
             }
@@ -408,8 +415,9 @@ private slots:
         dtv::parsers::CsvRecordScanner::Callbacks cb;
         cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
             currentCell.append(fragment.data(), fragment.size());
-            if (isEnd) {
-                if (colIndex >= current.fields.size()) current.fields.resize(colIndex + 1);
+            if(isEnd) {
+                if(colIndex >= current.fields.size())
+                    current.fields.resize(colIndex + 1);
                 current.fields[colIndex] = std::move(currentCell);
                 currentCell.clear();
             }

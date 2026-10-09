@@ -38,6 +38,7 @@ class ActionRegistry;
 class DataTableViewer : public ViewerBase {
     Q_OBJECT
     friend class TestViewerPaging;
+
 public:
     explicit DataTableViewer(QWidget *parent = nullptr);
     ~DataTableViewer() override;
@@ -55,7 +56,10 @@ public:
     void updateTheme(int theme) override;
 
     void onCopyTriggered() override;
-    dtv::ui::ActionRegistry *actionRegistry() const { return m_actionRegistry.get(); }
+    dtv::ui::ActionRegistry *actionRegistry() const
+    {
+        return m_actionRegistry.get();
+    }
 
 signals:
     void cancelRequested();
@@ -118,7 +122,10 @@ private:
     qreal m_dpr = 1.0;
 
     // Paged SQLite browsing state
-    struct SortState { int column; bool ascending; };
+    struct SortState {
+        int column;
+        bool ascending;
+    };
     std::optional<SortState> m_committedSort;
     std::optional<SortState> m_pendingSort;
     bool m_canSort = false;

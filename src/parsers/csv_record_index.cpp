@@ -30,8 +30,8 @@ std::atomic<uint64_t> s_fileCounter{0};
 // of this process's CREATE_NEW retries.
 uint64_t processRunSalt()
 {
-    static const uint64_t salt = static_cast<uint64_t>(
-        std::chrono::high_resolution_clock::now().time_since_epoch().count());
+    static const uint64_t salt =
+        static_cast<uint64_t>(std::chrono::high_resolution_clock::now().time_since_epoch().count());
     return salt;
 }
 constexpr size_t kWriteBufferSize = 4096;
@@ -41,25 +41,26 @@ constexpr size_t kBlockReadSize = 2048;
 // or display it without depending on the ANSI code page.
 std::string wideToUtf8(const std::wstring &wide)
 {
-    if (wide.empty())
+    if(wide.empty())
         return {};
-    int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(),
-                                   static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if (size <= 0)
+    int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), nullptr,
+                                   0, nullptr, nullptr);
+    if(size <= 0)
         return {};
     std::string utf8(static_cast<size_t>(size), '\0');
-    if (WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
-                            utf8.data(), size, nullptr, nullptr) != size) {
+    if(WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), utf8.data(),
+                           size, nullptr, nullptr) != size) {
         return {};
     }
     return utf8;
 }
 
-bool createPrivateIndexFile(std::wstring &outDir, std::wstring &outPath, HANDLE &outHandle, std::string &error)
+bool createPrivateIndexFile(std::wstring &outDir, std::wstring &outPath, HANDLE &outHandle,
+                            std::string &error)
 {
     wchar_t tempPath[MAX_PATH];
     DWORD len = GetTempPathW(MAX_PATH, tempPath);
-    if (len == 0 || len >= MAX_PATH) {
+    if(len == 0 || len >= MAX_PATH) {
         error = "Failed to get temp path";
         return false;
     }
@@ -70,65 +71,60 @@ bool createPrivateIndexFile(std::wstring &outDir, std::wstring &outPath, HANDLE 
     const std::wstring suffix = L"dtv_idx_" + std::to_wstring(GetCurrentProcessId()) + L"_" +
                                 std::to_wstring(processRunSalt());
     outDir = std::wstring(tempPath) + suffix;
-    if (!CreateDirectoryW(outDir.c_str(), nullptr) &&
-        GetLastError() != ERROR_ALREADY_EXISTS) {
+    if(!CreateDirectoryW(outDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
         error = "Failed to create index directory: " + std::to_string(GetLastError());
         return false;
     }
 
     outHandle = INVALID_HANDLE_VALUE;
-    for (int attempt = 0; attempt < 5 && outHandle == INVALID_HANDLE_VALUE; ++attempt) {
+    for(int attempt = 0; attempt < 5 && outHandle == INVALID_HANDLE_VALUE; ++attempt) {
         uint64_t counter = s_fileCounter.fetch_add(1);
         outPath = outDir + L"\\dtv_idx_" + std::to_wstring(counter) + L".bin";
-        outHandle = CreateFileW(
-            outPath.c_str(),
-            GENERIC_READ | GENERIC_WRITE,
-            0, // Exclusive access
-            nullptr,
-            CREATE_NEW, // Fail if the name somehow exists
-            FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
-            nullptr);
-        if (outHandle == INVALID_HANDLE_VALUE &&
-            GetLastError() != ERROR_FILE_EXISTS) {
+        outHandle = CreateFileW(outPath.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                0, // Exclusive access
+                                nullptr,
+                                CREATE_NEW, // Fail if the name somehow exists
+                                FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+        if(outHandle == INVALID_HANDLE_VALUE && GetLastError() != ERROR_FILE_EXISTS) {
             break; // Unrelated failure; report it below
         }
     }
 
-    if (outHandle == INVALID_HANDLE_VALUE) {
+    if(outHandle == INVALID_HANDLE_VALUE) {
         error = "Failed to create temporary index file: " + std::to_string(GetLastError());
         return false;
     }
     return true;
 }
 #else
-bool createPrivateIndexFile(std::string &outDir, std::string &outPath, FILE *&outHandle, std::string &error)
+bool createPrivateIndexFile(std::string &outDir, std::string &outPath, FILE *&outHandle,
+                            std::string &error)
 {
     const char *tempBase = getenv("TMPDIR");
     std::string root = tempBase && *tempBase ? tempBase : "/tmp";
-    outDir = root + "/dtv_idx_" + std::to_string(getpid()) + "_" +
-             std::to_string(processRunSalt());
-    if (mkdir(outDir.c_str(), 0700) != 0 && errno != EEXIST) {
+    outDir = root + "/dtv_idx_" + std::to_string(getpid()) + "_" + std::to_string(processRunSalt());
+    if(mkdir(outDir.c_str(), 0700) != 0 && errno != EEXIST) {
         error = "Failed to create index directory";
         return false;
     }
 
     outHandle = nullptr;
-    for (int attempt = 0; attempt < 5 && !outHandle; ++attempt) {
+    for(int attempt = 0; attempt < 5 && !outHandle; ++attempt) {
         uint64_t counter = s_fileCounter.fetch_add(1);
         outPath = outDir + "/dtv_idx_" + std::to_string(counter) + ".bin";
         int fd = open(outPath.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
-        if (fd >= 0) {
+        if(fd >= 0) {
             outHandle = fdopen(fd, "w+b");
-            if (!outHandle) {
+            if(!outHandle) {
                 close(fd);
                 std::remove(outPath.c_str());
             }
-        } else if (errno != EEXIST) {
+        } else if(errno != EEXIST) {
             break;
         }
     }
 
-    if (!outHandle) {
+    if(!outHandle) {
         error = "Failed to create temporary index file";
         return false;
     }
@@ -164,26 +160,26 @@ struct CsvRecordIndex::Impl {
     void close()
     {
 #ifdef _WIN32
-        if (fileHandle != INVALID_HANDLE_VALUE) {
+        if(fileHandle != INVALID_HANDLE_VALUE) {
             CloseHandle(fileHandle);
             fileHandle = INVALID_HANDLE_VALUE;
         }
         // Best-effort removal of the now-empty private directory. Fails
         // harmlessly while other index instances in this process still own
         // files inside it.
-        if (!dirPath.empty()) {
+        if(!dirPath.empty()) {
             RemoveDirectoryW(dirPath.c_str());
             dirPath.clear();
         }
 #else
-        if (fileHandle) {
+        if(fileHandle) {
             fclose(fileHandle);
             fileHandle = nullptr;
-            if (!filePath.empty()) {
+            if(!filePath.empty()) {
                 std::remove(filePath.c_str());
             }
         }
-        if (!dirPath.empty()) {
+        if(!dirPath.empty()) {
             rmdir(dirPath.c_str());
             dirPath.clear();
         }
@@ -198,42 +194,45 @@ struct CsvRecordIndex::Impl {
 
     bool flushBuffer(CsvIndexHeader &header, std::string &error)
     {
-        if (writeBuffer.empty())
+        if(writeBuffer.empty())
             return true;
 
 #ifdef _WIN32
-        if (fileHandle == INVALID_HANDLE_VALUE) {
+        if(fileHandle == INVALID_HANDLE_VALUE) {
             error = "Invalid index file handle";
             return false;
         }
 
         // Seek to end of data
         LARGE_INTEGER li;
-        li.QuadPart = sizeof(CsvIndexHeader) + (header.dataRecordCount - writeBuffer.size()) * sizeof(CsvRecordSpan);
-        if (!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
+        li.QuadPart = sizeof(CsvIndexHeader) +
+                      (header.dataRecordCount - writeBuffer.size()) * sizeof(CsvRecordSpan);
+        if(!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
             error = "Failed to seek in index file";
             return false;
         }
 
         DWORD bytesToWrite = static_cast<DWORD>(writeBuffer.size() * sizeof(CsvRecordSpan));
         DWORD bytesWritten = 0;
-        if (!WriteFile(fileHandle, writeBuffer.data(), bytesToWrite, &bytesWritten, nullptr) ||
-            bytesWritten != bytesToWrite) {
+        if(!WriteFile(fileHandle, writeBuffer.data(), bytesToWrite, &bytesWritten, nullptr) ||
+           bytesWritten != bytesToWrite) {
             error = "Failed to write spans to index file";
             return false;
         }
 #else
-        if (!fileHandle) {
+        if(!fileHandle) {
             error = "Invalid index file pointer";
             return false;
         }
-        uint64_t offset = sizeof(CsvIndexHeader) + (header.dataRecordCount - writeBuffer.size()) * sizeof(CsvRecordSpan);
-        if (fseeko(fileHandle, static_cast<off_t>(offset), SEEK_SET) != 0) {
+        uint64_t offset = sizeof(CsvIndexHeader) +
+                          (header.dataRecordCount - writeBuffer.size()) * sizeof(CsvRecordSpan);
+        if(fseeko(fileHandle, static_cast<off_t>(offset), SEEK_SET) != 0) {
             error = "Failed to seek in index file";
             return false;
         }
-        size_t written = fwrite(writeBuffer.data(), sizeof(CsvRecordSpan), writeBuffer.size(), fileHandle);
-        if (written != writeBuffer.size()) {
+        size_t written =
+            fwrite(writeBuffer.data(), sizeof(CsvRecordSpan), writeBuffer.size(), fileHandle);
+        if(written != writeBuffer.size()) {
             error = "Failed to write spans to index file";
             return false;
         }
@@ -245,32 +244,32 @@ struct CsvRecordIndex::Impl {
     bool writeHeader(const CsvIndexHeader &header, std::string &error)
     {
 #ifdef _WIN32
-        if (fileHandle == INVALID_HANDLE_VALUE) {
+        if(fileHandle == INVALID_HANDLE_VALUE) {
             error = "Invalid index file handle";
             return false;
         }
         LARGE_INTEGER li;
         li.QuadPart = 0;
-        if (!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
+        if(!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
             error = "Failed to seek to header";
             return false;
         }
         DWORD written = 0;
-        if (!WriteFile(fileHandle, &header, sizeof(CsvIndexHeader), &written, nullptr) ||
-            written != sizeof(CsvIndexHeader)) {
+        if(!WriteFile(fileHandle, &header, sizeof(CsvIndexHeader), &written, nullptr) ||
+           written != sizeof(CsvIndexHeader)) {
             error = "Failed to write index header";
             return false;
         }
 #else
-        if (!fileHandle) {
+        if(!fileHandle) {
             error = "Invalid index file pointer";
             return false;
         }
-        if (fseek(fileHandle, 0, SEEK_SET) != 0) {
+        if(fseek(fileHandle, 0, SEEK_SET) != 0) {
             error = "Failed to seek to header";
             return false;
         }
-        if (fwrite(&header, sizeof(CsvIndexHeader), 1, fileHandle) != 1) {
+        if(fwrite(&header, sizeof(CsvIndexHeader), 1, fileHandle) != 1) {
             error = "Failed to write index header";
             return false;
         }
@@ -298,7 +297,7 @@ CsvRecordIndex::CsvRecordIndex(CsvRecordIndex &&other)
 
 CsvRecordIndex &CsvRecordIndex::operator=(CsvRecordIndex &&other)
 {
-    if (this != &other) {
+    if(this != &other) {
         m_impl = std::move(other.m_impl);
         m_header = other.m_header;
         m_error = std::move(other.m_error);
@@ -311,7 +310,7 @@ CsvRecordIndex &CsvRecordIndex::operator=(CsvRecordIndex &&other)
 
 bool CsvRecordIndex::init()
 {
-    if (!m_impl) {
+    if(!m_impl) {
         m_impl = std::make_unique<Impl>();
     }
     m_impl->close();
@@ -324,7 +323,7 @@ bool CsvRecordIndex::init()
     // never leak into the new index.
     m_header = CsvIndexHeader{};
 
-    if (!createPrivateIndexFile(m_impl->dirPath, m_impl->filePath, m_impl->fileHandle, m_error)) {
+    if(!createPrivateIndexFile(m_impl->dirPath, m_impl->filePath, m_impl->fileHandle, m_error)) {
         return false;
     }
 
@@ -333,15 +332,15 @@ bool CsvRecordIndex::init()
 
 bool CsvRecordIndex::appendSpan(uint64_t start, uint64_t end)
 {
-    if (!m_impl) {
+    if(!m_impl) {
         m_error = "Index is not initialized";
         return false;
     }
-    if (m_impl->failed) {
+    if(m_impl->failed) {
         m_error = "Index has failed";
         return false;
     }
-    if (start > end) {
+    if(start > end) {
         m_error = "Inverted record span";
         return false;
     }
@@ -349,15 +348,15 @@ bool CsvRecordIndex::appendSpan(uint64_t start, uint64_t end)
     CsvRecordSpan span{start, end};
 
     // Cache the first 65,536 spans in RAM
-    if (m_impl->ramCache.size() < kMaxCachedSpans) {
+    if(m_impl->ramCache.size() < kMaxCachedSpans) {
         m_impl->ramCache.push_back(span);
     }
 
     m_impl->writeBuffer.push_back(span);
     m_header.dataRecordCount++;
 
-    if (m_impl->writeBuffer.size() >= kWriteBufferSize) {
-        if (!m_impl->flushBuffer(m_header, m_error)) {
+    if(m_impl->writeBuffer.size() >= kWriteBufferSize) {
+        if(!m_impl->flushBuffer(m_header, m_error)) {
             m_impl->failed = true;
             return false;
         }
@@ -368,30 +367,33 @@ bool CsvRecordIndex::appendSpan(uint64_t start, uint64_t end)
 
 std::optional<CsvRecordSpan> CsvRecordIndex::readSpan(int64_t ordinal)
 {
-    if (!m_impl || m_impl->failed || ordinal < 0 || static_cast<uint64_t>(ordinal) >= m_header.dataRecordCount) {
+    if(!m_impl || m_impl->failed || ordinal < 0 ||
+       static_cast<uint64_t>(ordinal) >= m_header.dataRecordCount) {
         return std::nullopt;
     }
 
     // 1. Check RAM cache for first 65,536 spans
-    if (static_cast<size_t>(ordinal) < m_impl->ramCache.size()) {
+    if(static_cast<size_t>(ordinal) < m_impl->ramCache.size()) {
         return m_impl->ramCache[static_cast<size_t>(ordinal)];
     }
 
     // 2. Check sliding block cache
-    if (m_impl->blockStartOrdinal >= 0 && ordinal >= m_impl->blockStartOrdinal &&
-        static_cast<size_t>(ordinal - m_impl->blockStartOrdinal) < m_impl->blockCache.size()) {
+    if(m_impl->blockStartOrdinal >= 0 && ordinal >= m_impl->blockStartOrdinal &&
+       static_cast<size_t>(ordinal - m_impl->blockStartOrdinal) < m_impl->blockCache.size()) {
         return m_impl->blockCache[static_cast<size_t>(ordinal - m_impl->blockStartOrdinal)];
     }
 
     // 3. Flush write buffer before reading from disk to ensure data is visible
-    if (!m_impl->flushBuffer(m_header, m_error)) {
+    if(!m_impl->flushBuffer(m_header, m_error)) {
         m_impl->failed = true;
         return std::nullopt;
     }
 
     // 4. Read block from disk
-    uint64_t fileOffset = sizeof(CsvIndexHeader) + static_cast<uint64_t>(ordinal) * sizeof(CsvRecordSpan);
-    size_t countToRead = std::min<size_t>(kBlockReadSize, static_cast<size_t>(m_header.dataRecordCount - ordinal));
+    uint64_t fileOffset =
+        sizeof(CsvIndexHeader) + static_cast<uint64_t>(ordinal) * sizeof(CsvRecordSpan);
+    size_t countToRead =
+        std::min<size_t>(kBlockReadSize, static_cast<size_t>(m_header.dataRecordCount - ordinal));
     // Drop the previous window first: a partially written block must never be
     // reachable through blockStartOrdinal, or later reads would serve zeros
     // instead of failing.
@@ -401,7 +403,7 @@ std::optional<CsvRecordSpan> CsvRecordIndex::readSpan(int64_t ordinal)
 #ifdef _WIN32
     LARGE_INTEGER li;
     li.QuadPart = fileOffset;
-    if (!SetFilePointerEx(m_impl->fileHandle, li, nullptr, FILE_BEGIN)) {
+    if(!SetFilePointerEx(m_impl->fileHandle, li, nullptr, FILE_BEGIN)) {
         m_error = "Seek failed during span read";
         m_impl->failed = true;
         m_impl->invalidateCache();
@@ -409,22 +411,23 @@ std::optional<CsvRecordSpan> CsvRecordIndex::readSpan(int64_t ordinal)
     }
     DWORD bytesRead = 0;
     DWORD bytesToRead = static_cast<DWORD>(countToRead * sizeof(CsvRecordSpan));
-    if (!ReadFile(m_impl->fileHandle, m_impl->blockCache.data(), bytesToRead, &bytesRead, nullptr) ||
-        bytesRead != bytesToRead) {
+    if(!ReadFile(m_impl->fileHandle, m_impl->blockCache.data(), bytesToRead, &bytesRead, nullptr) ||
+       bytesRead != bytesToRead) {
         m_error = "ReadFile failed during span read";
         m_impl->failed = true;
         m_impl->invalidateCache();
         return std::nullopt;
     }
 #else
-    if (fseeko(m_impl->fileHandle, static_cast<off_t>(fileOffset), SEEK_SET) != 0) {
+    if(fseeko(m_impl->fileHandle, static_cast<off_t>(fileOffset), SEEK_SET) != 0) {
         m_error = "Seek failed during span read";
         m_impl->failed = true;
         m_impl->invalidateCache();
         return std::nullopt;
     }
-    size_t read = fread(m_impl->blockCache.data(), sizeof(CsvRecordSpan), countToRead, m_impl->fileHandle);
-    if (read != countToRead) {
+    size_t read =
+        fread(m_impl->blockCache.data(), sizeof(CsvRecordSpan), countToRead, m_impl->fileHandle);
+    if(read != countToRead) {
         m_error = "fread failed during span read";
         m_impl->failed = true;
         m_impl->invalidateCache();
@@ -441,9 +444,9 @@ std::vector<CsvRecordSpan> CsvRecordIndex::readSpans(int64_t firstOrdinal, size_
     std::vector<CsvRecordSpan> result;
     result.reserve(count);
 
-    for (size_t i = 0; i < count; ++i) {
+    for(size_t i = 0; i < count; ++i) {
         auto span = readSpan(firstOrdinal + static_cast<int64_t>(i));
-        if (!span)
+        if(!span)
             break;
         result.push_back(*span);
     }
@@ -471,11 +474,11 @@ void CsvRecordIndex::setMetadata(uint32_t colCount, char delimiter, bool hasBom)
 
 bool CsvRecordIndex::markComplete()
 {
-    if (!m_impl || m_impl->failed) {
+    if(!m_impl || m_impl->failed) {
         return false;
     }
     m_header.isComplete = 1;
-    if (!flush()) {
+    if(!flush()) {
         // Roll the flag back together with the write failure. Leaving it set
         // would make every later query report EOF at N rows while every span
         // read fails, i.e. a dead index advertised as a finished one.
@@ -487,7 +490,7 @@ bool CsvRecordIndex::markComplete()
 
 std::string CsvRecordIndex::filePath() const
 {
-    if (!m_impl) {
+    if(!m_impl) {
         return {};
     }
 #ifdef _WIN32
@@ -509,14 +512,14 @@ bool CsvRecordIndex::hasFailed() const
 
 bool CsvRecordIndex::flush()
 {
-    if (!m_impl || m_impl->failed) {
+    if(!m_impl || m_impl->failed) {
         return false;
     }
-    if (!m_impl->flushBuffer(m_header, m_error)) {
+    if(!m_impl->flushBuffer(m_header, m_error)) {
         m_impl->failed = true;
         return false;
     }
-    if (!m_impl->writeHeader(m_header, m_error)) {
+    if(!m_impl->writeHeader(m_header, m_error)) {
         m_impl->failed = true;
         return false;
     }

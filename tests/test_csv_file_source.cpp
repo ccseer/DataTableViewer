@@ -19,10 +19,10 @@ private:
     QString createTempCsv(const std::string &content, const QString &templateName = QString())
     {
         auto *file = new QTemporaryFile(this);
-        if (!templateName.isEmpty()) {
+        if(!templateName.isEmpty()) {
             file->setFileTemplate(QDir::tempPath() + "/" + templateName);
         }
-        if (!file->open()) {
+        if(!file->open()) {
             return QString();
         }
         file->write(content.data(), static_cast<qint64>(content.size()));
@@ -73,8 +73,9 @@ private slots:
         // 1250 records with 3 columns: id,name,val
         std::string content = "id,name,val\n";
         content.reserve(1250 * 25);
-        for (int i = 0; i < 1250; ++i) {
-            content += std::to_string(i) + ",Name_" + std::to_string(i) + "," + std::to_string(i * 10) + "\n";
+        for(int i = 0; i < 1250; ++i) {
+            content += std::to_string(i) + ",Name_" + std::to_string(i) + "," +
+                       std::to_string(i * 10) + "\n";
         }
         QString path = createTempCsv(content);
 
@@ -129,7 +130,7 @@ private slots:
     {
         // 1000 rows with pageSize 500 (exact boundary)
         std::string content = "k,v\n";
-        for (int i = 0; i < 1000; ++i) {
+        for(int i = 0; i < 1000; ++i) {
             content += std::to_string(i) + ",val\n";
         }
         QString path = createTempCsv(content);
@@ -155,7 +156,7 @@ private slots:
         // "测试数据" in UTF-8 is 12 bytes (4 characters x 3 bytes each).
         std::string cjkPattern = "测试数据";
         std::string longText;
-        while (longText.size() < 10000) {
+        while(longText.size() < 10000) {
             longText += cjkPattern;
         }
 
@@ -185,8 +186,11 @@ private slots:
         // Row 1: integer, float, string, and long number (> 64 bytes)
         std::string longNum(70, '9');
         std::string content = "int_col,float_col,str_col,long_num\n"
-                              "123,45.67,hello," + longNum + "\n"
-                              "456,89.12,world," + longNum + "\n";
+                              "123,45.67,hello," +
+                              longNum +
+                              "\n"
+                              "456,89.12,world," +
+                              longNum + "\n";
         QString path = createTempCsv(content);
 
         dtv::parsers::CsvFileSource source;
@@ -255,7 +259,7 @@ private slots:
         // Generate a file > 300 KiB so it requires multiple 256 KiB slices
         std::string content = "id,data\n";
         content.reserve(500 * 1024);
-        for (int i = 0; i < 15000; ++i) {
+        for(int i = 0; i < 15000; ++i) {
             content += std::to_string(i) + ",some_filler_text_for_padding\n";
         }
         QString path = createTempCsv(content);
@@ -271,7 +275,7 @@ private slots:
 
         // Advance indexing until EOF with iteration bound
         int slices = 0;
-        while (!source.advanceIndex(256 * 1024).isComplete) {
+        while(!source.advanceIndex(256 * 1024).isComplete) {
             QVERIFY(++slices < 100);
         }
 
@@ -288,12 +292,12 @@ private slots:
         QCOMPARE(*source.rowCount(), 15000LL);
         int expected = 0;
         auto page = source.first(500);
-        while (page.ok && !page.data->rows.empty()) {
-            for (const auto &row : page.data->rows) {
+        while(page.ok && !page.data->rows.empty()) {
+            for(const auto &row : page.data->rows) {
                 QCOMPARE(row[0], std::to_string(expected));
                 expected++;
             }
-            if (!page.hasMore) {
+            if(!page.hasMore) {
                 break;
             }
             page = source.next(page.token, 500);
@@ -398,7 +402,7 @@ private slots:
         auto page = source.first(500);
         QVERIFY(page.ok);
         QCOMPARE(page.data->rows.size(), 4ull);
-        for (const auto &row : page.data->rows) {
+        for(const auto &row : page.data->rows) {
             QCOMPARE(row.size(), 3ull);
         }
         QCOMPARE(page.data->rows[1][0], std::string("2"));
@@ -412,7 +416,7 @@ private slots:
         // A header value is bounded to 4096 decoded bytes and the cut has to
         // land on a UTF-8 code point boundary. 测试数据 is 4 x 3 bytes.
         std::string cjk;
-        while (cjk.size() < 20000)
+        while(cjk.size() < 20000)
             cjk += "\xE6\xB5\x8B\xE8\xAF\x95";
         std::string content = "id,\"" + cjk + "\"\n1,value\n";
         QString path = createTempCsv(content);
@@ -438,7 +442,7 @@ private slots:
         // The refetch result carries its own column labels, so a multi-byte
         // clamped value has to come back under the column it belongs to.
         std::string cjk;
-        while (cjk.size() < 10000)
+        while(cjk.size() < 10000)
             cjk += "\xE6\xB5\x8B\xE8\xAF\x95";
         std::string content = "id,first,wide\n1,start,\"" + cjk + "\"\n";
         QString path = createTempCsv(content);
@@ -458,7 +462,8 @@ private slots:
         QCOMPARE(res.columns[0], 2);
         QCOMPARE(res.values.size(), 1ull);
         QCOMPARE(res.values[0], cjk);
-        QString decoded = QString::fromUtf8(res.values[0].data(), static_cast<int>(res.values[0].size()));
+        QString decoded =
+            QString::fromUtf8(res.values[0].data(), static_cast<int>(res.values[0].size()));
         QVERIFY(!decoded.contains(QChar::ReplacementCharacter));
     }
 
@@ -488,7 +493,7 @@ private slots:
     void testPageBeyondIndexedTailFails()
     {
         std::string content = "id,data\n";
-        for (int i = 0; i < 15000; ++i)
+        for(int i = 0; i < 15000; ++i)
             content += std::to_string(i) + ",some_filler_text_for_padding\n";
         QString path = createTempCsv(content);
 
@@ -503,7 +508,7 @@ private slots:
         QCOMPARE(beyond.error, std::string("Page range is not indexed yet"));
 
         int slices = 0;
-        while (!source.advanceIndex(256 * 1024).isComplete)
+        while(!source.advanceIndex(256 * 1024).isComplete)
             QVERIFY(++slices < 100);
 
         // Past the real last row the index is final, so the empty page is true.
@@ -516,7 +521,7 @@ private slots:
     void testExternalMutationStopsIndexingAndPaging()
     {
         std::string content = "id,data\n";
-        for (int i = 0; i < 15000; ++i)
+        for(int i = 0; i < 15000; ++i)
             content += std::to_string(i) + ",some_filler_text_for_padding\n";
         QString path = createTempCsv(content);
 
@@ -679,7 +684,7 @@ private slots:
         // never m_impl->cancelCheck (which carries opGen from navigation).
         // If it did, any page turn would kill background indexing.
         std::string content = "id,data\n";
-        for (int i = 0; i < 15000; ++i) {
+        for(int i = 0; i < 15000; ++i) {
             content += std::to_string(i) + ",filler_text_padding\n";
         }
         QString path = createTempCsv(content);
@@ -688,7 +693,9 @@ private slots:
         QVERIFY(source.open(path.toStdString()));
 
         // Simulate a navigation operation setting opGen-bound cancelCheck
-        source.setCancelCheck([]() { return true; });
+        source.setCancelCheck([]() {
+            return true;
+        });
 
         // advanceIndex should still make progress without being cancelled
         auto progress = source.advanceIndex(256 * 1024);
@@ -702,7 +709,7 @@ private slots:
         // Later row contains a huge clamped number (> 4096 bytes).
         // The truncated prefix must NOT be parsed into numeric_cache; it must store NaN.
         std::string content = "id,num\n";
-        for (int i = 0; i < 200; ++i) {
+        for(int i = 0; i < 200; ++i) {
             content += std::to_string(i) + "," + std::to_string(i * 10) + "\n";
         }
         std::string giantDigits(5000, '9');

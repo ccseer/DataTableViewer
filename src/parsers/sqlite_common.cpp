@@ -21,8 +21,9 @@ std::string mapSqliteDeclType(const char *decl_type)
     if(!decl_type)
         return "string";
     std::string type(decl_type);
-    std::transform(type.begin(), type.end(), type.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
     if(type.find("int") != std::string::npos)
         return "integer";
     if(type.find("float") != std::string::npos || type.find("double") != std::string::npos ||
@@ -60,8 +61,9 @@ SqliteOpenResult openReadOnly(const std::string &path)
     sqlite3_finalize(stmt);
     // temp_store = FILE keeps the server-side sort's ordinal table on disk
     // instead of letting a large ORDER BY grow the process heap.
-    rc = sqlite3_exec(db, "PRAGMA cache_size = -8000; PRAGMA mmap_size = 0; "
-                          "PRAGMA temp_store = FILE",
+    rc = sqlite3_exec(db,
+                      "PRAGMA cache_size = -8000; PRAGMA mmap_size = 0; "
+                      "PRAGMA temp_store = FILE",
                       nullptr, nullptr, nullptr);
     if(rc != SQLITE_OK) {
         result.error = sqlite3_errmsg(db);

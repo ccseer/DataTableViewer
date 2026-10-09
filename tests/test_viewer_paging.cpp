@@ -63,48 +63,52 @@ private:
     QString m_emptyPageDbPath;
     QString m_longTextValue;
 
-    void setupViewer(DataTableViewer &viewer, const QString &path,
-                     ViewOptionsPrivate &optsPriv, ViewOptions &opts);
+    void setupViewer(DataTableViewer &viewer, const QString &path, ViewOptionsPrivate &optsPriv,
+                     ViewOptions &opts);
     bool createDatabase(const QString &filePath, int rowCount);
     bool createLongTextDatabase(const QString &filePath, int textLength);
 };
 
-bool TestViewerPaging::createDatabase(const QString &filePath, int rowCount) {
+bool TestViewerPaging::createDatabase(const QString &filePath, int rowCount)
+{
     sqlite3 *db = nullptr;
-    if (sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
+    if(sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
         return false;
     }
-    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr, nullptr);
-    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, val REAL);",
-                 nullptr, nullptr, nullptr);
-    std::string sql =
-        "WITH RECURSIVE cnt(x) AS ("
-        "  SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < " + std::to_string(rowCount) +
-        ") "
-        "INSERT INTO items(id, name, val) "
-        "SELECT x, 'Item_' || x, (x * 1.5) FROM cnt;";
+    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr,
+                 nullptr);
+    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, val REAL);", nullptr,
+                 nullptr, nullptr);
+    std::string sql = "WITH RECURSIVE cnt(x) AS ("
+                      "  SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < " +
+                      std::to_string(rowCount) +
+                      ") "
+                      "INSERT INTO items(id, name, val) "
+                      "SELECT x, 'Item_' || x, (x * 1.5) FROM cnt;";
     char *errmsg = nullptr;
     int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
-    if (errmsg) {
+    if(errmsg) {
         sqlite3_free(errmsg);
     }
     sqlite3_close(db);
     return rc == SQLITE_OK;
 }
 
-bool TestViewerPaging::createLongTextDatabase(const QString &filePath, int textLength) {
+bool TestViewerPaging::createLongTextDatabase(const QString &filePath, int textLength)
+{
     sqlite3 *db = nullptr;
-    if (sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
+    if(sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
         return false;
     }
-    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr, nullptr);
-    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, val REAL);",
-                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr,
+                 nullptr);
+    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, val REAL);", nullptr,
+                 nullptr, nullptr);
     std::string longText(static_cast<size_t>(textLength), 'A');
     std::string sql = "INSERT INTO items(id, name, val) VALUES (1, '" + longText + "', 1.5);";
     char *errmsg = nullptr;
     int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
-    if (errmsg) {
+    if(errmsg) {
         sqlite3_free(errmsg);
     }
     sqlite3_close(db);
@@ -112,7 +116,8 @@ bool TestViewerPaging::createLongTextDatabase(const QString &filePath, int textL
 }
 
 void TestViewerPaging::setupViewer(DataTableViewer &viewer, const QString &path,
-                                    ViewOptionsPrivate &optsPriv, ViewOptions &opts) {
+                                   ViewOptionsPrivate &optsPriv, ViewOptions &opts)
+{
     // Keep the page size and the settings file inside the test's temp dir so
     // neither the host configuration nor the plugin directory is touched.
     if(!viewer.m_pageSizeOverride.has_value()) {
@@ -129,7 +134,8 @@ void TestViewerPaging::setupViewer(DataTableViewer &viewer, const QString &path,
     viewer.load(nullptr, &opts);
 }
 
-void TestViewerPaging::initTestCase() {
+void TestViewerPaging::initTestCase()
+{
     m_tempDir = std::make_unique<QTemporaryDir>();
     QVERIFY(m_tempDir->isValid());
     m_1mDbPath = m_tempDir->filePath("1m.db");
@@ -144,7 +150,8 @@ void TestViewerPaging::initTestCase() {
     QVERIFY(createDatabase(m_emptyPageDbPath, 1200));
 }
 
-void TestViewerPaging::cleanupTestCase() {
+void TestViewerPaging::cleanupTestCase()
+{
     QFile::remove(m_1mDbPath);
     QFile::remove(m_smallDbPath);
     QFile::remove(m_longTextDbPath);
@@ -152,7 +159,8 @@ void TestViewerPaging::cleanupTestCase() {
     m_tempDir.reset();
 }
 
-void TestViewerPaging::test1MRowDatabaseOpensAndPages() {
+void TestViewerPaging::test1MRowDatabaseOpensAndPages()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -200,7 +208,8 @@ void TestViewerPaging::test1MRowDatabaseOpensAndPages() {
     QCOMPARE(viewer.m_pagerState.hasMore, false);
 }
 
-void TestViewerPaging::testSmallTableHidesPager() {
+void TestViewerPaging::testSmallTableHidesPager()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -219,7 +228,8 @@ void TestViewerPaging::testSmallTableHidesPager() {
     QVERIFY(!viewer.m_pageBar->shouldBeVisible());
 }
 
-void TestViewerPaging::testCsvPaged() {
+void TestViewerPaging::testCsvPaged()
+{
     // 1. Small CSV file: 1 page, pager bar hidden, sorting unsupported
     {
         DataTableViewer viewer;
@@ -246,7 +256,8 @@ void TestViewerPaging::testCsvPaged() {
         auto header = viewer.m_renderer->horizontalHeader();
         header->sectionClicked(0);
         QVERIFY(!header->isSortIndicatorShown());
-        QCOMPARE(viewer.m_status->text(), QString("Sorting is not supported for paged CSV/TSV files"));
+        QCOMPARE(viewer.m_status->text(),
+                 QString("Sorting is not supported for paged CSV/TSV files"));
 
         // Copying a cell works correctly
         viewer.m_renderer->selectCell(0, 0);
@@ -262,7 +273,7 @@ void TestViewerPaging::testCsvPaged() {
         QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
         QTextStream out(&file);
         out << "id,name,score\n";
-        for (int i = 1; i <= 1250; ++i) {
+        for(int i = 1; i <= 1250; ++i) {
             out << i << ",Item_" << i << "," << (i * 1.5) << "\n";
         }
         file.close();
@@ -292,7 +303,8 @@ void TestViewerPaging::testCsvPaged() {
         // Verify page-local filtering on CSV
         viewer.m_search->setText("Item_10");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount() < 500 &&
-                                 viewer.m_renderer->filterMatchCount() > 0, 2000);
+                                     viewer.m_renderer->filterMatchCount() > 0,
+                                 2000);
         QVERIFY(viewer.m_status->text().contains("match on this page") ||
                 viewer.m_status->text().contains("matches on this page"));
         viewer.m_search->clear();
@@ -302,30 +314,35 @@ void TestViewerPaging::testCsvPaged() {
         viewer.m_renderer->selectCell(0, 1);
         viewer.m_renderer->copyToClipboard();
         viewer.onNextPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2,
+                                 2000);
         QCOMPARE(viewer.m_renderer->rowCount(), 500);
         QCOMPARE(QGuiApplication::clipboard()->text(), QString("Item_1"));
 
         // Test Next page navigation to page 3 (partial page)
         viewer.onNextPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3,
+                                 2000);
         QCOMPARE(viewer.m_renderer->rowCount(), 250);
         QCOMPARE(viewer.m_pagerState.hasMore, false);
 
         // Test Previous page navigation back to page 2
         viewer.onPrevPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2,
+                                 2000);
         QCOMPARE(viewer.m_renderer->rowCount(), 500);
 
         // Test Last page navigation
         viewer.onLastPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 3,
+                                 2000);
         QCOMPARE(viewer.m_renderer->rowCount(), 250);
         QCOMPARE(viewer.m_pagerState.hasMore, false);
 
         // Test First page navigation
         viewer.onFirstPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1,
+                                 2000);
         QCOMPARE(viewer.m_renderer->rowCount(), 500);
 
         // Test copy budget exceeded error feedback
@@ -358,7 +375,8 @@ void TestViewerPaging::testCsvPaged() {
         auto header = viewer.m_renderer->horizontalHeader();
         header->sectionClicked(0);
         QVERIFY(!header->isSortIndicatorShown());
-        QCOMPARE(viewer.m_status->text(), QString("Sorting is not supported for paged CSV/TSV files"));
+        QCOMPARE(viewer.m_status->text(),
+                 QString("Sorting is not supported for paged CSV/TSV files"));
     }
 
     // 4. Clamped CSV cell: the copy must go through the async refetch and land
@@ -384,7 +402,8 @@ void TestViewerPaging::testCsvPaged() {
         // Page decode clamps the cell at the 4096-byte display cap, so the
         // stored text is shorter than the value on disk.
         QVERIFY(viewer.m_renderer->isCellClamped(0, 1));
-        QVERIFY(viewer.m_renderer->model()->index(0, 1).data().toString().length() < longValue.length());
+        QVERIFY(viewer.m_renderer->model()->index(0, 1).data().toString().length() <
+                longValue.length());
 
         viewer.m_renderer->selectCell(0, 1);
         viewer.m_renderer->copyToClipboard();
@@ -406,7 +425,7 @@ void TestViewerPaging::testCsvPaged() {
         QTextStream out(&file);
         out << "id,name,value\n";
         const QString filler(1000, QChar('x'));
-        for (int i = 1; i <= 350; ++i) {
+        for(int i = 1; i <= 350; ++i) {
             out << i << ",Row_" << i << "," << filler << "\n";
         }
         file.close();
@@ -461,7 +480,8 @@ void TestViewerPaging::testCsvPaged() {
 
         // When load info arrives after an indexing error, the error and warning
         // must be preserved rather than wiped out by summary text.
-        bar.setPagedLoadInfo(1, 100, std::nullopt, 3, 4096, 15, "CSV", "(built-in RFC 4180 parser)");
+        bar.setPagedLoadInfo(1, 100, std::nullopt, 3, 4096, 15, "CSV",
+                             "(built-in RFC 4180 parser)");
         QVERIFY(bar.text().contains("Indexing error"));
         QVERIFY(bar.text().contains("Corrupt record"));
 
@@ -520,7 +540,8 @@ void TestViewerPaging::testCsvPaged() {
         QVERIFY(viewer.m_pagerState.canNext());
 
         viewer.onNextPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2,
+                                 10000);
         QCOMPARE(viewer.m_renderer->rowCount(), 500);
     }
 
@@ -611,7 +632,8 @@ void TestViewerPaging::testCsvPaged() {
     }
 }
 
-void TestViewerPaging::testBackButtonTeardown() {
+void TestViewerPaging::testBackButtonTeardown()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -634,7 +656,8 @@ void TestViewerPaging::testBackButtonTeardown() {
     QVERIFY(viewer.m_countWorker == nullptr);
 }
 
-void TestViewerPaging::testHeaderStatePreservedAcrossPageTurns() {
+void TestViewerPaging::testHeaderStatePreservedAcrossPageTurns()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -662,7 +685,8 @@ void TestViewerPaging::testHeaderStatePreservedAcrossPageTurns() {
     QCOMPARE(header->sectionSize(0), 260);
 }
 
-void TestViewerPaging::testCountRequestedOnlyOnceOnPageTurns() {
+void TestViewerPaging::testCountRequestedOnlyOnceOnPageTurns()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -690,7 +714,8 @@ void TestViewerPaging::testCountRequestedOnlyOnceOnPageTurns() {
     QVERIFY(viewer.m_countRequested);
 }
 
-void TestViewerPaging::testPageNavigationFailureRollsBackPageNumber() {
+void TestViewerPaging::testPageNavigationFailureRollsBackPageNumber()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -728,10 +753,11 @@ void TestViewerPaging::testPageNavigationFailureRollsBackPageNumber() {
     QCOMPARE(viewer.m_pagerState.page, 2LL);
 }
 
-void TestViewerPaging::testLargeTableRowRangeDoesNotOverflow() {
+void TestViewerPaging::testLargeTableRowRangeDoesNotOverflow()
+{
     dtv::core::PagerState state;
     state.pageSize = 500;
-    state.page = 10000000LL; // 10 millionth page
+    state.page = 10000000LL;    // 10 millionth page
     state.total = 5000000000LL; // 5 billion rows (> 2.14B int32 limit)
 
     int64_t firstRow = dtv::core::firstRowOnPage(state.page, state.pageSize);
@@ -748,7 +774,8 @@ void TestViewerPaging::testLargeTableRowRangeDoesNotOverflow() {
     QVERIFY(!text.contains("---"));
 }
 
-void TestViewerPaging::testClampedLongTextCopyRefetchesFullContent() {
+void TestViewerPaging::testClampedLongTextCopyRefetchesFullContent()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -762,7 +789,8 @@ void TestViewerPaging::testClampedLongTextCopyRefetchesFullContent() {
     // The 5000-char name exceeds the 4096-byte page clamp, so the cell must be
     // flagged and its displayed value must be the clamped text.
     QVERIFY(viewer.m_renderer->isCellClamped(0, 1));
-    QString clampedDisplay = viewer.m_renderer->model()->index(0, 1).data(Qt::DisplayRole).toString();
+    QString clampedDisplay =
+        viewer.m_renderer->model()->index(0, 1).data(Qt::DisplayRole).toString();
     QVERIFY(clampedDisplay.length() < m_longTextValue.length());
 
     // Plain copy must asynchronously refetch and produce the full unclamped value
@@ -779,7 +807,8 @@ void TestViewerPaging::testClampedLongTextCopyRefetchesFullContent() {
     QVERIFY(mdText.contains(m_longTextValue));
 }
 
-void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken() {
+void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -799,7 +828,8 @@ void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken() {
     // Externally delete rows 601..1200 so page 3 no longer has any rows
     sqlite3 *db = nullptr;
     QVERIFY(sqlite3_open(m_emptyPageDbPath.toUtf8().constData(), &db) == SQLITE_OK);
-    QVERIFY(sqlite3_exec(db, "DELETE FROM items WHERE id > 600;", nullptr, nullptr, nullptr) == SQLITE_OK);
+    QVERIFY(sqlite3_exec(db, "DELETE FROM items WHERE id > 600;", nullptr, nullptr, nullptr) ==
+            SQLITE_OK);
     sqlite3_close(db);
 
     // Next hits the empty page: page number, rows and token must stay on page 2
@@ -811,7 +841,8 @@ void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken() {
     QVERIFY(viewer.m_currentToken.valid);
 
     // Fresh COUNT rebuilds the pager bounds: total 600 -> 2 pages, no Next
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value() && *viewer.m_pagerState.total == 600LL, 3000);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        viewer.m_pagerState.total.has_value() && *viewer.m_pagerState.total == 600LL, 3000);
     QVERIFY(!viewer.m_pagerState.canNext());
     QVERIFY(viewer.m_pagerState.canPrev());
 
@@ -820,7 +851,8 @@ void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken() {
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
 }
 
-void TestViewerPaging::testServerSortAndCancel() {
+void TestViewerPaging::testServerSortAndCancel()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate priv;
     ViewOptions opts;
@@ -851,7 +883,8 @@ void TestViewerPaging::testServerSortAndCancel() {
     QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("50"));
 }
 
-void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator() {
+void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate priv;
     ViewOptions opts;
@@ -863,14 +896,15 @@ void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator() {
     viewer.show();
     QLabel *sortingLabel = nullptr;
     for(auto label : viewer.m_status->findChildren<QLabel *>()) {
-        if(label->text().contains("href=\"cancel\"")) sortingLabel = label;
+        if(label->text().contains("href=\"cancel\""))
+            sortingLabel = label;
     }
     QVERIFY(sortingLabel);
     auto header = viewer.m_renderer->horizontalHeader();
     auto click = [header](int column) {
-        QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier,
-                         QPoint(header->sectionViewportPosition(column) + 20,
-                                header->height() / 2), 0);
+        QTest::mouseClick(
+            header->viewport(), Qt::LeftButton, Qt::NoModifier,
+            QPoint(header->sectionViewportPosition(column) + 20, header->height() / 2), 0);
     };
     click(0);
     QVERIFY(viewer.m_sorting);
@@ -904,7 +938,8 @@ void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator() {
     QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1000000"));
 }
 
-void TestViewerPaging::testLateSortCancelAndReplacement() {
+void TestViewerPaging::testLateSortCancelAndReplacement()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate priv;
     ViewOptions opts;
@@ -921,14 +956,21 @@ void TestViewerPaging::testLateSortCancelAndReplacement() {
     // Cancel from the worker finish boundary, after source order promotion.
     auto once = std::make_shared<std::atomic<bool>>(false);
     auto worker = viewer.m_sourceWorker;
-    QMetaObject::invokeMethod(worker, [worker, &viewer, once] {
-        worker->setFinishHook([&viewer, once] {
-            if(!once->exchange(true)) {
-                QMetaObject::invokeMethod(&viewer, [&viewer] { viewer.cancelSort(); },
-                                          Qt::BlockingQueuedConnection);
-            }
-        });
-    }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        worker,
+        [worker, &viewer, once] {
+            worker->setFinishHook([&viewer, once] {
+                if(!once->exchange(true)) {
+                    QMetaObject::invokeMethod(
+                        &viewer,
+                        [&viewer] {
+                            viewer.cancelSort();
+                        },
+                        Qt::BlockingQueuedConnection);
+                }
+            });
+        },
+        Qt::QueuedConnection);
     auto viewGen = viewer.m_viewGen->load();
     header->sectionClicked(1);
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
@@ -946,7 +988,8 @@ void TestViewerPaging::testLateSortCancelAndReplacement() {
     QCOMPARE(viewer.m_renderer->model()->index(0, 0).data().toString(), QString("1"));
 }
 
-void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
+void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins()
+{
     dtv::ui::TableRenderer renderer;
     auto data = std::make_shared<dtv::core::TableData>();
     data->columns.push_back({"text", dtv::core::ColumnMeta::Type::String});
@@ -954,7 +997,9 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     dtv::core::RefetchKey key;
     key.rowid = 1;
     renderer.setPageData(data, {key}, {{true}});
-    QSignalSpy requests(&renderer, SIGNAL(refetchRowsRequested(uint64_t,bool,std::vector<std::pair<int,dtv::core::RefetchKey>>)));
+    QSignalSpy requests(&renderer,
+                        SIGNAL(refetchRowsRequested(
+                            uint64_t, bool, std::vector<std::pair<int, dtv::core::RefetchKey>>)));
     renderer.selectCell(0, 0);
     renderer.copyToClipboard();
     QVERIFY(requests.isValid());
@@ -965,7 +1010,8 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     result.ok = true;
     result.values = {QString(2000, QChar(0x4e2d)).toStdString() + "\r\nend"};
     renderer.onRefetchRowsCompleted(request, {{0, result}});
-    QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(), QString(2000, QChar(0x4e2d)) + " end", 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(QGuiApplication::clipboard()->text(),
+                              QString(2000, QChar(0x4e2d)) + " end", 3000);
     QTest::qWait(50);
     renderer.setPageData(data, {key}, {{true}});
     renderer.selectCell(0, 0);
@@ -989,7 +1035,8 @@ void TestViewerPaging::testCopySurvivesPageTurnAndLatestWins() {
     QVERIFY(QGuiApplication::clipboard()->text().contains(QString(2000, QChar(0x4e2d)) + " end"));
 }
 
-void TestViewerPaging::testTextViewControlBarButton() {
+void TestViewerPaging::testTextViewControlBarButton()
+{
     // 1. With control bar and valid path: button created, enabled, emits VCT_LoadViewerWithNewType "Text"
     {
         DataTableViewer viewer;
@@ -1036,7 +1083,8 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QCOMPARE(viewer.m_btnTextView->width(), qRound(30 * 1.5));
         QCOMPARE(viewer.m_btnTextView->iconSize(), QSize(qRound(24 * 1.5), qRound(24 * 1.5)));
         QVERIFY(!viewer.m_btnTextView->icon().availableSizes().isEmpty());
-        QCOMPARE(viewer.m_btnTextView->icon().availableSizes().first(), QSize(qRound(24 * 1.5), qRound(24 * 1.5)));
+        QCOMPARE(viewer.m_btnTextView->icon().availableSizes().first(),
+                 QSize(qRound(24 * 1.5), qRound(24 * 1.5)));
         viewer.updateTheme(1); // Dark theme
     }
 
@@ -1074,7 +1122,8 @@ void TestViewerPaging::testTextViewControlBarButton() {
         QCOMPARE(spyCommand.count(), 0);
 
         // Verify disabled icon has dimmed opacity (alpha <= 105)
-        QImage normalImg = viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Normal).toImage();
+        QImage normalImg =
+            viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Normal).toImage();
         bool foundOpaqueInNormal = false;
         for(int y = 0; y < normalImg.height(); ++y) {
             for(int x = 0; x < normalImg.width(); ++x) {
@@ -1086,7 +1135,8 @@ void TestViewerPaging::testTextViewControlBarButton() {
         }
         QVERIFY(foundOpaqueInNormal);
 
-        QImage disabledImg = viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Disabled).toImage();
+        QImage disabledImg =
+            viewer.m_btnTextView->icon().pixmap(QSize(24, 24), QIcon::Disabled).toImage();
         bool foundOver105InDisabled = false;
         for(int y = 0; y < disabledImg.height(); ++y) {
             for(int x = 0; x < disabledImg.width(); ++x) {
@@ -1237,7 +1287,8 @@ void TestViewerPaging::testTextViewControlBarButton() {
     }
 }
 
-void TestViewerPaging::testRowIndexColumn() {
+void TestViewerPaging::testRowIndexColumn()
+{
     // 1. Default row_index_b = true: vertical header is visible and reports 1-based data row numbers
     {
         DataTableViewer viewer;
@@ -1251,7 +1302,7 @@ void TestViewerPaging::testRowIndexColumn() {
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
         QVERIFY(viewer.m_renderer->showRowIndex());
-        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *table = viewer.m_renderer->findChild<QTableView *>();
         QVERIFY(table != nullptr);
         auto *vHeader = table->verticalHeader();
         QVERIFY(vHeader != nullptr);
@@ -1301,7 +1352,7 @@ void TestViewerPaging::testRowIndexColumn() {
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
         QVERIFY(!viewer.m_renderer->showRowIndex());
-        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *table = viewer.m_renderer->findChild<QTableView *>();
         QVERIFY(table != nullptr);
         auto *vHeader = table->verticalHeader();
         QVERIFY(vHeader != nullptr);
@@ -1324,7 +1375,7 @@ void TestViewerPaging::testRowIndexColumn() {
         viewer.m_renderer->setFilter("Item_2", -1);
         QTRY_COMPARE_WITH_TIMEOUT(viewer.m_renderer->filterMatchCount(), 11, 2000);
 
-        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *table = viewer.m_renderer->findChild<QTableView *>();
         auto *vHeader = table->verticalHeader();
         QVERIFY(!vHeader->isHidden());
         // Source row indices produce non-contiguous vertical header numbering:
@@ -1332,7 +1383,8 @@ void TestViewerPaging::testRowIndexColumn() {
         // Item_20 is source row 19 -> "20" (displayed at visual row 1)
         auto *proxyModel = table->model();
         QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("2"));
-        QCOMPARE(proxyModel->headerData(1, Qt::Vertical, Qt::DisplayRole).toString(), QString("20"));
+        QCOMPARE(proxyModel->headerData(1, Qt::Vertical, Qt::DisplayRole).toString(),
+                 QString("20"));
     }
 
     // 4. Paging: vertical header displays honest global row numbers across pages (e.g. 501..1000 on page 2)
@@ -1350,27 +1402,32 @@ void TestViewerPaging::testRowIndexColumn() {
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
 
-        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *table = viewer.m_renderer->findChild<QTableView *>();
         QVERIFY(table != nullptr);
         auto *proxyModel = table->model();
         QVERIFY(proxyModel != nullptr);
 
         // Page 1: rows 1..500
         QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("1"));
-        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(), QString("500"));
+        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(),
+                 QString("500"));
 
         // Navigate to Page 2
         viewer.onNextPageClicked();
-        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 2,
+                                 5000);
         QCOMPARE(viewer.m_renderer->rowCount(), 500);
 
         // Page 2: rows 501..1000
-        QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(), QString("501"));
-        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(), QString("1000"));
+        QCOMPARE(proxyModel->headerData(0, Qt::Vertical, Qt::DisplayRole).toString(),
+                 QString("501"));
+        QCOMPARE(proxyModel->headerData(499, Qt::Vertical, Qt::DisplayRole).toString(),
+                 QString("1000"));
     }
 }
 
-void TestViewerPaging::testStatusBarRowIndexMetrics() {
+void TestViewerPaging::testStatusBarRowIndexMetrics()
+{
     // 1. Paged SQLite table with known total: displays [Row n/500, Global #k/total] col : value
     {
         DataTableViewer viewer;
@@ -1398,11 +1455,12 @@ void TestViewerPaging::testStatusBarRowIndexMetrics() {
 
         // Select first visible row (Item_2, source row index 1)
         viewer.m_renderer->selectCell(1, 1);
-        QCOMPARE(viewer.m_status->text(), QString("[11 matches on this page]  [Row 2/500, Global #2/50] name : Item_2"));
+        QCOMPARE(viewer.m_status->text(),
+                 QString("[11 matches on this page]  [Row 2/500, Global #2/50] name : Item_2"));
 
         // Clear filter and clear selection
         viewer.m_search->clear();
-        auto *table = viewer.m_renderer->findChild<QTableView*>();
+        auto *table = viewer.m_renderer->findChild<QTableView *>();
         table->selectionModel()->clearSelection();
         table->selectionModel()->setCurrentIndex(QModelIndex(), QItemSelectionModel::NoUpdate);
         QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_status->text().contains("[Row"), 2000);
@@ -1424,7 +1482,8 @@ void TestViewerPaging::testStatusBarRowIndexMetrics() {
     }
 }
 
-void TestViewerPaging::testPagingShortcutsAndTooltips() {
+void TestViewerPaging::testPagingShortcutsAndTooltips()
+{
     DataTableViewer viewer;
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
@@ -1439,10 +1498,14 @@ void TestViewerPaging::testPagingShortcutsAndTooltips() {
     const QList<QPushButton *> buttons = viewer.m_pageBar->findChildren<QPushButton *>();
     QCOMPARE(buttons.size(), 4);
 
-    const QString hintFirst = QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
-    const QString hintPrev = QKeySequence(Qt::ControlModifier | Qt::Key_PageUp).toString(QKeySequence::NativeText);
-    const QString hintNext = QKeySequence(Qt::ControlModifier | Qt::Key_PageDown).toString(QKeySequence::NativeText);
-    const QString hintLast = QKeySequence(Qt::ControlModifier | Qt::Key_End).toString(QKeySequence::NativeText);
+    const QString hintFirst =
+        QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
+    const QString hintPrev =
+        QKeySequence(Qt::ControlModifier | Qt::Key_PageUp).toString(QKeySequence::NativeText);
+    const QString hintNext =
+        QKeySequence(Qt::ControlModifier | Qt::Key_PageDown).toString(QKeySequence::NativeText);
+    const QString hintLast =
+        QKeySequence(Qt::ControlModifier | Qt::Key_End).toString(QKeySequence::NativeText);
 
     QCOMPARE(buttons.at(0)->toolTip(), QString("First page (%1)").arg(hintFirst));
     QCOMPARE(buttons.at(1)->toolTip(), QString("Previous page (%1)").arg(hintPrev));
@@ -1473,7 +1536,7 @@ void TestViewerPaging::testPagingShortcutsAndTooltips() {
     QCOMPARE(viewer.m_renderer->rowCount(), 500);
 
     // 5. Verify eventFilter ignores modified PageUp/Down at boundaries
-    auto *table = viewer.m_renderer->findChild<QTableView*>();
+    auto *table = viewer.m_renderer->findChild<QTableView *>();
     QVERIFY(table != nullptr);
     QKeyEvent shiftPageUp(QEvent::KeyPress, Qt::Key_PageUp, Qt::ShiftModifier);
     QCoreApplication::sendEvent(table, &shiftPageUp);
@@ -1481,7 +1544,8 @@ void TestViewerPaging::testPagingShortcutsAndTooltips() {
     QCOMPARE(viewer.m_pagerState.page, 1LL);
 }
 
-void TestViewerPaging::testContentSizingAndPropertyBounds() {
+void TestViewerPaging::testContentSizingAndPropertyBounds()
+{
     // 1. Verify getContentSize() returns natural size 960x600
     {
         DataTableViewer viewer;

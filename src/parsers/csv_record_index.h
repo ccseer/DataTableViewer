@@ -15,14 +15,14 @@ struct CsvIndexHeader {
     char magic[8] = {'D', 'T', 'V', 'C', 'S', 'V', '0', '1'};
     uint32_t headerSize = sizeof(CsvIndexHeader); // 64
     uint32_t version = 1;
-    uint64_t headerStart = 0;       // Source file byte offset of header row
-    uint64_t headerEnd = 0;         // Source file byte offset where header ends
-    uint64_t dataRecordCount = 0;   // Number of indexed data records
-    uint32_t columnCount = 0;       // Inferred column count
-    char delimiter = ',';           // Detected delimiter (',' or '\t')
-    uint8_t hasBom = 0;             // 1 if UTF-8 BOM present
-    uint8_t isComplete = 0;         // 1 if EOF reached, 0 if still indexing
-    uint8_t reserved[17] = {0};     // 47 bytes used, 17 reserved = 64 bytes total
+    uint64_t headerStart = 0;     // Source file byte offset of header row
+    uint64_t headerEnd = 0;       // Source file byte offset where header ends
+    uint64_t dataRecordCount = 0; // Number of indexed data records
+    uint32_t columnCount = 0;     // Inferred column count
+    char delimiter = ',';         // Detected delimiter (',' or '\t')
+    uint8_t hasBom = 0;           // 1 if UTF-8 BOM present
+    uint8_t isComplete = 0;       // 1 if EOF reached, 0 if still indexing
+    uint8_t reserved[17] = {0};   // 47 bytes used, 17 reserved = 64 bytes total
 };
 
 struct CsvRecordSpan {
@@ -83,13 +83,28 @@ public:
     // True after any write, seek or read failure. Every span query fails
     // from this point on, so no partially persisted range is served.
     bool hasFailed() const;
-    uint64_t dataRecordCount() const { return m_header.dataRecordCount; }
-    char delimiter() const { return m_header.delimiter; }
-    bool hasBom() const { return m_header.hasBom != 0; }
-    uint32_t columnCount() const { return m_header.columnCount; }
+    uint64_t dataRecordCount() const
+    {
+        return m_header.dataRecordCount;
+    }
+    char delimiter() const
+    {
+        return m_header.delimiter;
+    }
+    bool hasBom() const
+    {
+        return m_header.hasBom != 0;
+    }
+    uint32_t columnCount() const
+    {
+        return m_header.columnCount;
+    }
 
     bool flush();
-    const std::string &error() const { return m_error; }
+    const std::string &error() const
+    {
+        return m_error;
+    }
 
 private:
     struct Impl;

@@ -6,91 +6,98 @@
 
 namespace dtv::workers {
 
-void registerWorkerMetatypes() {
+void registerWorkerMetatypes()
+{
     static const bool registered = [] {
         qRegisterMetaType<std::shared_ptr<const dtv::core::PageResult>>(
             "std::shared_ptr<const dtv::core::PageResult>");
-        qRegisterMetaType<std::vector<dtv::core::ColumnMeta>>(
-            "std::vector<dtv::core::ColumnMeta>");
+        qRegisterMetaType<std::vector<dtv::core::ColumnMeta>>("std::vector<dtv::core::ColumnMeta>");
         qRegisterMetaType<dtv::core::PageToken>("dtv::core::PageToken");
         qRegisterMetaType<std::vector<std::pair<int, dtv::core::RefetchKey>>>(
             "std::vector<std::pair<int, dtv::core::RefetchKey>>");
         qRegisterMetaType<std::vector<std::pair<int, dtv::core::RefetchResult>>>(
             "std::vector<std::pair<int, dtv::core::RefetchResult>>");
-        qRegisterMetaType<dtv::workers::SourceOpenDescriptor>(
-            "dtv::workers::SourceOpenDescriptor");
+        qRegisterMetaType<dtv::workers::SourceOpenDescriptor>("dtv::workers::SourceOpenDescriptor");
         return true;
     }();
     Q_UNUSED(registered);
 }
 
-SourceWorker::SourceWorker(
-    std::shared_ptr<std::atomic<uint64_t>> viewGen,
-    std::shared_ptr<std::atomic<uint64_t>> opGen,
-    std::unique_ptr<core::ITableSource> source,
-    QObject *parent)
-    : QObject(parent),
-      m_viewGen(viewGen ? viewGen : std::make_shared<std::atomic<uint64_t>>(1)),
+SourceWorker::SourceWorker(std::shared_ptr<std::atomic<uint64_t>> viewGen,
+                           std::shared_ptr<std::atomic<uint64_t>> opGen,
+                           std::unique_ptr<core::ITableSource> source, QObject *parent)
+    : QObject(parent), m_viewGen(viewGen ? viewGen : std::make_shared<std::atomic<uint64_t>>(1)),
       m_opGen(opGen ? opGen : std::make_shared<std::atomic<uint64_t>>(1)),
       m_source(std::move(source))
 {
     registerWorkerMetatypes();
-    if (auto sqliteSource = dynamic_cast<parsers::SqliteTableSource*>(m_source.get())) {
+    if(auto sqliteSource = dynamic_cast<parsers::SqliteTableSource *>(m_source.get())) {
         m_interruptHandle = sqliteSource->interruptHandle();
     }
-    if (!m_interruptHandle) {
+    if(!m_interruptHandle) {
         m_interruptHandle = std::make_shared<parsers::InterruptHandle>();
     }
 }
 
-SourceWorker::~SourceWorker() {
-    if (m_interruptHandle) {
+SourceWorker::~SourceWorker()
+{
+    if(m_interruptHandle) {
         m_interruptHandle->clear();
     }
     m_source.reset();
 }
 
-std::shared_ptr<std::atomic<uint64_t>> SourceWorker::viewGen() const {
+std::shared_ptr<std::atomic<uint64_t>> SourceWorker::viewGen() const
+{
     return m_viewGen;
 }
 
-std::shared_ptr<std::atomic<uint64_t>> SourceWorker::opGen() const {
+std::shared_ptr<std::atomic<uint64_t>> SourceWorker::opGen() const
+{
     return m_opGen;
 }
 
-std::shared_ptr<parsers::InterruptHandle> SourceWorker::interruptHandle() const {
+std::shared_ptr<parsers::InterruptHandle> SourceWorker::interruptHandle() const
+{
     return m_interruptHandle;
 }
 
-void SourceWorker::interrupt() {
-    if (m_interruptHandle) {
+void SourceWorker::interrupt()
+{
+    if(m_interruptHandle) {
         m_interruptHandle->interrupt();
     }
 }
 
-void SourceWorker::setProgressHook(Hook hook) {
+void SourceWorker::setProgressHook(Hook hook)
+{
     m_progressHook = std::move(hook);
 }
 
-void SourceWorker::setInterruptHook(Hook hook) {
+void SourceWorker::setInterruptHook(Hook hook)
+{
     m_interruptHook = std::move(hook);
 }
 
-void SourceWorker::setFinishHook(Hook hook) {
+void SourceWorker::setFinishHook(Hook hook)
+{
     m_finishHook = std::move(hook);
 }
 
-bool SourceWorker::isStale(uint64_t viewGen, uint64_t opGen) const {
-    return (m_viewGen && m_viewGen->load() != viewGen) ||
-           (m_opGen && m_opGen->load() != opGen);
+bool SourceWorker::isStale(uint64_t viewGen, uint64_t opGen) const
+{
+    return (m_viewGen && m_viewGen->load() != viewGen) || (m_opGen && m_opGen->load() != opGen);
 }
 
-bool SourceWorker::isViewStale(uint64_t viewGen) const {
+bool SourceWorker::isViewStale(uint64_t viewGen) const
+{
     return m_viewGen && m_viewGen->load() != viewGen;
 }
 
-void SourceWorker::applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> opGen, uint64_t startSeq) {
-    if (!m_source) {
+void SourceWorker::applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> opGen,
+                                    uint64_t startSeq)
+{
+    if(!m_source) {
         return;
     }
 
@@ -99,7 +106,7 @@ void SourceWorker::applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> op
     auto handle = m_interruptHandle;
     auto hook = m_progressHook;
     m_source->setCancelCheck([vGen, oGen, handle, viewGen, opGen, startSeq, hook]() -> bool {
-        if (hook) {
+        if(hook) {
             try {
                 hook();
             } catch(...) {
@@ -114,24 +121,30 @@ void SourceWorker::applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> op
 }
 
 template <typename Func, typename IsCancelledFunc, typename IsStaleFunc>
-auto SourceWorker::executeWithInterruptRetry(Func &&fn, IsCancelledFunc &&isCancelled, IsStaleFunc &&isStale) {
+auto SourceWorker::executeWithInterruptRetry(Func &&fn, IsCancelledFunc &&isCancelled,
+                                             IsStaleFunc &&isStale)
+{
     uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
     auto res = fn();
-    if (isCancelled(res)) {
+    if(isCancelled(res)) {
         uint64_t endSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
-        if (!isStale() && endSeq == startSeq) {
+        if(!isStale() && endSeq == startSeq) {
             res = fn();
         }
     }
     return res;
 }
 
-void SourceWorker::open(uint64_t viewGen, uint64_t opGen, const QString &path, const QString &tableName) {
+void SourceWorker::open(uint64_t viewGen, uint64_t opGen, const QString &path,
+                        const QString &tableName)
+{
     openDescriptor(viewGen, opGen, SourceOpenDescriptor{SourceKind::Sqlite, path, tableName, '\0'});
 }
 
-void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::workers::SourceOpenDescriptor &desc) {
-    if (isStale(viewGen, opGen)) {
+void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen,
+                                  const dtv::workers::SourceOpenDescriptor &desc)
+{
+    if(isStale(viewGen, opGen)) {
         return;
     }
 
@@ -140,18 +153,18 @@ void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::w
     bool ok = false;
     std::string err;
 
-    if (desc.kind == SourceKind::Sqlite) {
-        if (!m_source || !dynamic_cast<parsers::SqliteTableSource*>(m_source.get())) {
+    if(desc.kind == SourceKind::Sqlite) {
+        if(!m_source || !dynamic_cast<parsers::SqliteTableSource *>(m_source.get())) {
             m_source = std::make_unique<parsers::SqliteTableSource>(m_interruptHandle);
         }
 
         uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
         applyCancelCheck(viewGen, opGen, startSeq);
 
-        auto sqliteSource = dynamic_cast<parsers::SqliteTableSource*>(m_source.get());
-        if (sqliteSource) {
+        auto sqliteSource = dynamic_cast<parsers::SqliteTableSource *>(m_source.get());
+        if(sqliteSource) {
             ok = sqliteSource->open(desc.path.toStdString(), desc.tableName.toStdString());
-            if (!ok) {
+            if(!ok) {
                 err = sqliteSource->error();
             }
         } else {
@@ -159,17 +172,17 @@ void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::w
             err = "Source type mismatch";
         }
     } else { // SourceKind::Csv
-        if (!m_source || !dynamic_cast<parsers::CsvFileSource*>(m_source.get())) {
+        if(!m_source || !dynamic_cast<parsers::CsvFileSource *>(m_source.get())) {
             m_source = std::make_unique<parsers::CsvFileSource>(desc.delimiter);
         }
 
         uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
         applyCancelCheck(viewGen, std::nullopt, startSeq);
 
-        auto csvSource = dynamic_cast<parsers::CsvFileSource*>(m_source.get());
-        if (csvSource) {
+        auto csvSource = dynamic_cast<parsers::CsvFileSource *>(m_source.get());
+        if(csvSource) {
             ok = csvSource->open(desc.path.toStdString(), desc.delimiter);
-            if (!ok) {
+            if(!ok) {
                 err = csvSource->error();
             }
         } else {
@@ -178,11 +191,11 @@ void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::w
         }
     }
 
-    if (m_finishHook) {
+    if(m_finishHook) {
         m_finishHook();
     }
 
-    if (isStale(viewGen, opGen)) {
+    if(isStale(viewGen, opGen)) {
         return;
     }
 
@@ -190,19 +203,21 @@ void SourceWorker::openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::w
                        m_source ? m_source->columns() : std::vector<core::ColumnMeta>{},
                        m_source ? m_source->canSort() : false);
 
-    if (ok && desc.kind == SourceKind::Csv && m_source) {
-        if (m_source->rowCount().has_value()) {
+    if(ok && desc.kind == SourceKind::Csv && m_source) {
+        if(m_source->rowCount().has_value()) {
             emit indexProgress(viewGen, *m_source->rowCount(), true, "");
         } else {
             m_progressTimer.start();
-            QMetaObject::invokeMethod(this, "indexSlice", Qt::QueuedConnection, Q_ARG(uint64_t, viewGen));
+            QMetaObject::invokeMethod(this, "indexSlice", Qt::QueuedConnection,
+                                      Q_ARG(uint64_t, viewGen));
         }
     }
 }
 
-void SourceWorker::indexSlice(uint64_t viewGen) {
-    if (isViewStale(viewGen) || !m_source || !m_source->isIndexable() ||
-        QThread::currentThread()->isInterruptionRequested()) {
+void SourceWorker::indexSlice(uint64_t viewGen)
+{
+    if(isViewStale(viewGen) || !m_source || !m_source->isIndexable() ||
+       QThread::currentThread()->isInterruptionRequested()) {
         return;
     }
 
@@ -220,30 +235,34 @@ void SourceWorker::indexSlice(uint64_t viewGen) {
     constexpr size_t kSliceBytes = 256 * 1024;
     auto progress = m_source->advanceIndex(kSliceBytes, cancelCheck);
 
-    if (isViewStale(viewGen)) {
+    if(isViewStale(viewGen)) {
         return;
     }
 
-    if (progress.isComplete || !progress.error.empty() || !m_progressTimer.isValid() || m_progressTimer.elapsed() >= 100) {
+    if(progress.isComplete || !progress.error.empty() || !m_progressTimer.isValid() ||
+       m_progressTimer.elapsed() >= 100) {
         m_progressTimer.restart();
-        emit indexProgress(viewGen, progress.indexedRows, progress.isComplete, QString::fromStdString(progress.error));
+        emit indexProgress(viewGen, progress.indexedRows, progress.isComplete,
+                           QString::fromStdString(progress.error));
     }
 
     // Check if pending page request can now be fulfilled or must fail
-    if (m_pendingPageRequest.has_value()) {
-        if (isStale(m_pendingPageRequest->viewGen, m_pendingPageRequest->opGen)) {
+    if(m_pendingPageRequest.has_value()) {
+        if(isStale(m_pendingPageRequest->viewGen, m_pendingPageRequest->opGen)) {
             m_pendingPageRequest.reset();
-        } else if (!progress.error.empty()) {
+        } else if(!progress.error.empty()) {
             // Indexing encountered an error: reject pending page request immediately so UI exits busy state
             auto req = std::move(*m_pendingPageRequest);
             m_pendingPageRequest.reset();
             core::PageResult failureResult;
             failureResult.ok = false;
             failureResult.error = progress.error;
-            emit pageReady(req.viewGen, req.opGen, std::make_shared<const core::PageResult>(std::move(failureResult)));
+            emit pageReady(req.viewGen, req.opGen,
+                           std::make_shared<const core::PageResult>(std::move(failureResult)));
         } else {
-            auto readyState = m_source->readiness(m_pendingPageRequest->firstOrdinal, m_pendingPageRequest->pageSize);
-            if (readyState != core::IndexReadiness::Pending) {
+            auto readyState = m_source->readiness(m_pendingPageRequest->firstOrdinal,
+                                                  m_pendingPageRequest->pageSize);
+            if(readyState != core::IndexReadiness::Pending) {
                 auto req = std::move(*m_pendingPageRequest);
                 m_pendingPageRequest.reset();
                 executePageQuery(req.viewGen, req.opGen, req.queryFunc);
@@ -251,15 +270,17 @@ void SourceWorker::indexSlice(uint64_t viewGen) {
         }
     }
 
-    if (!progress.isComplete && progress.error.empty() && !isViewStale(viewGen) &&
-        !QThread::currentThread()->isInterruptionRequested()) {
-        QMetaObject::invokeMethod(this, "indexSlice", Qt::QueuedConnection, Q_ARG(uint64_t, viewGen));
+    if(!progress.isComplete && progress.error.empty() && !isViewStale(viewGen) &&
+       !QThread::currentThread()->isInterruptionRequested()) {
+        QMetaObject::invokeMethod(this, "indexSlice", Qt::QueuedConnection,
+                                  Q_ARG(uint64_t, viewGen));
     }
 }
 
 template <typename F>
-void SourceWorker::executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryFunc) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryFunc)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
     uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
@@ -267,30 +288,38 @@ void SourceWorker::executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryF
 
     auto res = executeWithInterruptRetry(
         queryFunc,
-        [](const core::PageResult &r) { return !r.ok && core::isCancellationError(r.error); },
-        [&]() { return isStale(viewGen, opGen); });
+        [](const core::PageResult &r) {
+            return !r.ok && core::isCancellationError(r.error);
+        },
+        [&]() {
+            return isStale(viewGen, opGen);
+        });
 
-    if (m_finishHook) {
+    if(m_finishHook) {
         m_finishHook();
     }
 
-    if (isStale(viewGen, opGen)) {
+    if(isStale(viewGen, opGen)) {
         return;
     }
     emit pageReady(viewGen, opGen, std::make_shared<const core::PageResult>(std::move(res)));
 }
 
-void SourceWorker::first(uint64_t viewGen, uint64_t opGen, int pageSize) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::first(uint64_t viewGen, uint64_t opGen, int pageSize)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
 
-    auto queryFunc = [this, pageSize]() { return m_source->first(pageSize); };
+    auto queryFunc = [this, pageSize]() {
+        return m_source->first(pageSize);
+    };
 
-    if (m_source->isIndexable()) {
+    if(m_source->isIndexable()) {
         auto readyState = m_source->readiness(0, pageSize);
-        if (readyState == core::IndexReadiness::Pending) {
-            m_pendingPageRequest = PendingPageRequest{viewGen, opGen, 0, pageSize, std::move(queryFunc)};
+        if(readyState == core::IndexReadiness::Pending) {
+            m_pendingPageRequest =
+                PendingPageRequest{viewGen, opGen, 0, pageSize, std::move(queryFunc)};
             return;
         }
     }
@@ -299,23 +328,28 @@ void SourceWorker::first(uint64_t viewGen, uint64_t opGen, int pageSize) {
     executePageQuery(viewGen, opGen, queryFunc);
 }
 
-void SourceWorker::next(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token, int pageSize) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::next(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token,
+                        int pageSize)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
 
-    auto queryFunc = [this, token, pageSize]() { return m_source->next(token, pageSize); };
+    auto queryFunc = [this, token, pageSize]() {
+        return m_source->next(token, pageSize);
+    };
 
-    if (m_source->isIndexable()) {
-        if (pageSize <= 0 || token.offset > (std::numeric_limits<int64_t>::max)() - pageSize) {
+    if(m_source->isIndexable()) {
+        if(pageSize <= 0 || token.offset > (std::numeric_limits<int64_t>::max)() - pageSize) {
             m_pendingPageRequest.reset();
             executePageQuery(viewGen, opGen, queryFunc);
             return;
         }
         int64_t targetOrdinal = token.offset + pageSize;
         auto readyState = m_source->readiness(targetOrdinal, pageSize);
-        if (readyState == core::IndexReadiness::Pending) {
-            m_pendingPageRequest = PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
+        if(readyState == core::IndexReadiness::Pending) {
+            m_pendingPageRequest =
+                PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
             return;
         }
     }
@@ -324,18 +358,23 @@ void SourceWorker::next(uint64_t viewGen, uint64_t opGen, const dtv::core::PageT
     executePageQuery(viewGen, opGen, queryFunc);
 }
 
-void SourceWorker::prev(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token, int pageSize) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::prev(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token,
+                        int pageSize)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
 
-    auto queryFunc = [this, token, pageSize]() { return m_source->prev(token, pageSize); };
+    auto queryFunc = [this, token, pageSize]() {
+        return m_source->prev(token, pageSize);
+    };
 
-    if (m_source->isIndexable()) {
+    if(m_source->isIndexable()) {
         int64_t targetOrdinal = std::max<int64_t>(0, token.offset - pageSize);
         auto readyState = m_source->readiness(targetOrdinal, pageSize);
-        if (readyState == core::IndexReadiness::Pending) {
-            m_pendingPageRequest = PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
+        if(readyState == core::IndexReadiness::Pending) {
+            m_pendingPageRequest =
+                PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
             return;
         }
     }
@@ -344,23 +383,27 @@ void SourceWorker::prev(uint64_t viewGen, uint64_t opGen, const dtv::core::PageT
     executePageQuery(viewGen, opGen, queryFunc);
 }
 
-void SourceWorker::last(uint64_t viewGen, uint64_t opGen, int pageSize, qint64 knownTotal) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::last(uint64_t viewGen, uint64_t opGen, int pageSize, qint64 knownTotal)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
 
-    auto queryFunc = [this, pageSize, knownTotal]() { return m_source->last(pageSize, knownTotal); };
+    auto queryFunc = [this, pageSize, knownTotal]() {
+        return m_source->last(pageSize, knownTotal);
+    };
 
-    if (m_source->isIndexable()) {
+    if(m_source->isIndexable()) {
         int64_t targetOrdinal = 0;
-        if (pageSize > 0 && knownTotal > 0) {
+        if(pageSize > 0 && knownTotal > 0) {
             int64_t remainder = knownTotal % pageSize;
             targetOrdinal = remainder == 0 ? knownTotal - pageSize : knownTotal - remainder;
             targetOrdinal = std::max<int64_t>(0, targetOrdinal);
         }
         auto readyState = m_source->readiness(targetOrdinal, pageSize);
-        if (readyState == core::IndexReadiness::Pending) {
-            m_pendingPageRequest = PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
+        if(readyState == core::IndexReadiness::Pending) {
+            m_pendingPageRequest =
+                PendingPageRequest{viewGen, opGen, targetOrdinal, pageSize, std::move(queryFunc)};
             return;
         }
     }
@@ -369,28 +412,29 @@ void SourceWorker::last(uint64_t viewGen, uint64_t opGen, int pageSize, qint64 k
     executePageQuery(viewGen, opGen, queryFunc);
 }
 
-void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool ascending) {
-    if (isStale(viewGen, opGen) || !m_source) {
+void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool ascending)
+{
+    if(isStale(viewGen, opGen) || !m_source) {
         return;
     }
     uint64_t startSeq = m_interruptHandle ? m_interruptHandle->sequence() : 0;
     applyCancelCheck(viewGen, opGen, startSeq);
 
-    if (m_interruptHook) {
+    if(m_interruptHook) {
         m_interruptHook();
     }
 
-    auto sqliteSource = dynamic_cast<parsers::SqliteTableSource*>(m_source.get());
+    auto sqliteSource = dynamic_cast<parsers::SqliteTableSource *>(m_source.get());
     std::string errStr;
     // errStr is captured by reference into the synchronous retry lambda,
     // reflecting the latest attempt's error string as required by the interrupt/retry contract.
     bool ok = executeWithInterruptRetry(
         [&]() {
             bool success = m_source->sort(column, ascending);
-            if (sqliteSource) {
+            if(sqliteSource) {
                 errStr = sqliteSource->error();
             }
-            if (!success && errStr.empty()) {
+            if(!success && errStr.empty()) {
                 // Only the SQLite source publishes a reason string. Any other
                 // source reporting failure through this worker must still reach
                 // the UI with something actionable, otherwise the status bar
@@ -403,13 +447,15 @@ void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool as
         [&](bool success) {
             return !success && core::isCancellationError(errStr);
         },
-        [&]() { return isStale(viewGen, opGen); });
+        [&]() {
+            return isStale(viewGen, opGen);
+        });
 
-    if (m_finishHook) {
+    if(m_finishHook) {
         m_finishHook();
     }
 
-    if (isStale(viewGen, opGen)) {
+    if(isStale(viewGen, opGen)) {
         return;
     }
 
@@ -419,12 +465,12 @@ void SourceWorker::sort(uint64_t viewGen, uint64_t opGen, size_t column, bool as
 }
 
 void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
-                               const std::vector<std::pair<int, dtv::core::RefetchKey>> &rowKeys) {
+                               const std::vector<std::pair<int, dtv::core::RefetchKey>> &rowKeys)
+{
     // A stale or interrupted view must still complete the renderer's pending
     // copy: it keeps its cells and would otherwise never receive a completion
     // or a failure, so the user sees a silent no-op.
-    if (isViewStale(viewGen) || !m_source ||
-        QThread::currentThread()->isInterruptionRequested()) {
+    if(isViewStale(viewGen) || !m_source || QThread::currentThread()->isInterruptionRequested()) {
         emit refetchRowsCompleted(viewGen, copyRequestId, {});
         return;
     }
@@ -437,8 +483,8 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
     std::vector<std::pair<int, dtv::core::RefetchResult>> results;
     results.reserve(rowKeys.size());
 
-    for (const auto &item : rowKeys) {
-        if (isViewStale(viewGen)) {
+    for(const auto &item : rowKeys) {
+        if(isViewStale(viewGen)) {
             // The view moved on, so nothing may reach the clipboard any more.
             // Leaving without completing would strand the renderer's pending
             // copy: it keeps its cells and never gets a completion or a
@@ -446,7 +492,7 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
             emit refetchRowsCompleted(viewGen, copyRequestId, {});
             return;
         }
-        if (budgetExceeded) {
+        if(budgetExceeded) {
             core::RefetchResult failed;
             failed.ok = false;
             failed.error = core::kCopyBudgetExceededError;
@@ -455,15 +501,21 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
         }
 
         auto res = executeWithInterruptRetry(
-            [&]() { return m_source->refetch(item.second); },
-            [](const core::RefetchResult &r) { return !r.ok && core::isCancellationError(r.error); },
-            [&]() { return isViewStale(viewGen); });
+            [&]() {
+                return m_source->refetch(item.second);
+            },
+            [](const core::RefetchResult &r) {
+                return !r.ok && core::isCancellationError(r.error);
+            },
+            [&]() {
+                return isViewStale(viewGen);
+            });
 
-        if (res.ok) {
-            for (const auto &val : res.values) {
+        if(res.ok) {
+            for(const auto &val : res.values) {
                 totalBatchBytes += val.size();
             }
-            if (totalBatchBytes > core::kMaxCopyBudgetBytes) {
+            if(totalBatchBytes > core::kMaxCopyBudgetBytes) {
                 budgetExceeded = true;
             }
         }
@@ -471,8 +523,8 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
         results.emplace_back(item.first, std::move(res));
     }
 
-    if (budgetExceeded) {
-        for (auto &entry : results) {
+    if(budgetExceeded) {
+        for(auto &entry : results) {
             entry.second.ok = false;
             entry.second.error = core::kCopyBudgetExceededError;
             entry.second.columns.clear();
@@ -480,20 +532,21 @@ void SourceWorker::refetchRows(uint64_t viewGen, uint64_t copyRequestId,
         }
     }
 
-    if (m_finishHook) {
+    if(m_finishHook) {
         m_finishHook();
     }
 
-    if (isViewStale(viewGen)) {
+    if(isViewStale(viewGen)) {
         return;
     }
 
     emit refetchRowsCompleted(viewGen, copyRequestId, results);
 }
 
-void SourceWorker::shutdown() {
+void SourceWorker::shutdown()
+{
     m_pendingPageRequest = std::nullopt;
-    if (m_interruptHandle) {
+    if(m_interruptHandle) {
         m_interruptHandle->clear();
     }
     m_source.reset();

@@ -19,8 +19,8 @@ public:
 
     void setBusy(bool busy);
     void updateTheme(bool dark, qreal dpr);
-    void setShortcutHints(const QString &first, const QString &prev,
-                          const QString &next, const QString &last);
+    void setShortcutHints(const QString &first, const QString &prev, const QString &next,
+                          const QString &last);
 
 signals:
     void firstClicked();

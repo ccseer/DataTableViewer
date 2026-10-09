@@ -52,15 +52,11 @@ inline constexpr char kCopyBudgetExceededError[] = "Copy budget exceeded (64 MiB
 // in errmsg() after sqlite3_interrupt(), so both spellings are part of it.
 inline constexpr char kCancelledError[] = "Cancelled";
 inline constexpr char kInterruptedError[] = "interrupted";
-inline bool isCancellationError(const std::string &error) {
+inline bool isCancellationError(const std::string &error)
+{
     return error == kCancelledError || error == kInterruptedError;
 }
-enum class IndexReadiness {
-    Ready,
-    Pending,
-    End,
-    Failed
-};
+enum class IndexReadiness { Ready, Pending, End, Failed };
 struct IndexProgress {
     int64_t indexedRows = 0;
     uint64_t scannedBytes = 0;
@@ -69,7 +65,7 @@ struct IndexProgress {
 };
 using CancelCheck = std::function<bool()>;
 class ITableSource {
-    public:
+public:
     virtual ~ITableSource() = default;
     virtual const std::vector<ColumnMeta> &columns() const = 0;
     virtual std::optional<int64_t> rowCount() const = 0;
@@ -79,27 +75,32 @@ class ITableSource {
     virtual PageResult prev(const PageToken &token, int pageSize) = 0;
     virtual PageResult last(int pageSize, std::optional<int64_t> knownTotal) = 0;
     virtual bool canSort() const = 0;
-    virtual bool canSearch() const {
+    virtual bool canSearch() const
+    {
         return false;
     }
     virtual bool canRefetch() const = 0;
     virtual bool sort(size_t column, bool ascending, CancelCheck cancel = {}) = 0;
     virtual RefetchResult refetch(const RefetchKey &key) = 0;
-    virtual bool isIndexable() const {
+    virtual bool isIndexable() const
+    {
         return false;
     }
-    virtual IndexReadiness readiness(int64_t /*firstOrdinal*/, int /*pageSize*/) const {
+    virtual IndexReadiness readiness(int64_t /*firstOrdinal*/, int /*pageSize*/) const
+    {
         return IndexReadiness::Ready;
     }
-    virtual IndexProgress advanceIndex(size_t /*byteBudget*/, CancelCheck /*cancel*/ = {}) {
+    virtual IndexProgress advanceIndex(size_t /*byteBudget*/, CancelCheck /*cancel*/ = {})
+    {
         return {};
     }
-    virtual void setCancelCheck(CancelCheck /*cancel*/) {}
+    virtual void setCancelCheck(CancelCheck /*cancel*/)
+    {}
 };
 // One materialized page: navigation returns the same complete data, ignoring
 // page size and anchors. hasMore is false; this adapter does not use a pager.
 class MaterializedTableSource final : public ITableSource {
-    public:
+public:
     explicit MaterializedTableSource(std::shared_ptr<const TableData> data);
     const std::vector<ColumnMeta> &columns() const override;
     std::optional<int64_t> rowCount() const override;
@@ -108,18 +109,21 @@ class MaterializedTableSource final : public ITableSource {
     PageResult next(const PageToken &, int) override;
     PageResult prev(const PageToken &, int) override;
     PageResult last(int, std::optional<int64_t>) override;
-    bool canSort() const override {
+    bool canSort() const override
+    {
         return false;
     }
-    bool canRefetch() const override {
+    bool canRefetch() const override
+    {
         return false;
     }
-    bool sort(size_t, bool, CancelCheck = {}) override {
+    bool sort(size_t, bool, CancelCheck = {}) override
+    {
         return false;
     }
     RefetchResult refetch(const RefetchKey &) override;
 
-    private:
+private:
     std::shared_ptr<const TableData> m_data;
     std::optional<int64_t> m_total;
 };

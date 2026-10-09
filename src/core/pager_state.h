@@ -5,13 +5,16 @@
 #include <optional>
 #include <limits>
 namespace dtv::core {
-inline int64_t firstRowOnPage(int64_t page, int64_t pageSize) {
+inline int64_t firstRowOnPage(int64_t page, int64_t pageSize)
+{
     return (page - 1) * pageSize + 1;
 }
-inline int normalizePageRows(std::optional<int64_t> value = std::nullopt) {
+inline int normalizePageRows(std::optional<int64_t> value = std::nullopt)
+{
     return value ? static_cast<int>(std::clamp<int64_t>(*value, 100, 3000)) : 500;
 }
-inline int normalizePageRows(const std::string &value) {
+inline int normalizePageRows(const std::string &value)
+{
     try {
         size_t end = 0;
         const auto parsed = std::stoll(value, &end);
@@ -26,21 +29,26 @@ struct PagerState {
     std::optional<int64_t> total;
     bool hasMore = false;
     bool arrivedFromPrev = false;
-    int64_t pages() const {
+    int64_t pages() const
+    {
         return total && pageSize > 0
                    ? std::max<int64_t>(1, *total / pageSize + (*total % pageSize != 0))
                    : 0;
     }
-    bool canFirst() const {
+    bool canFirst() const
+    {
         return page > 1;
     }
-    bool canPrev() const {
+    bool canPrev() const
+    {
         return page > 1;
     }
-    bool canNext() const {
+    bool canNext() const
+    {
         return total ? page < pages() : (hasMore || arrivedFromPrev);
     }
-    bool canLast() const {
+    bool canLast() const
+    {
         return total && page < pages();
     }
 };

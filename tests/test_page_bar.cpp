@@ -8,7 +8,8 @@ using namespace dtv::ui;
 class TestPageBar : public QObject {
     Q_OBJECT
 private slots:
-    void testSmallTableHidesPager() {
+    void testSmallTableHidesPager()
+    {
         PageBar bar;
         dtv::core::PagerState state;
         state.page = 1;
@@ -19,7 +20,8 @@ private slots:
         QCOMPARE(bar.shouldBeVisible(), false);
     }
 
-    void testPendingCountDisplayAndEnabled() {
+    void testPendingCountDisplayAndEnabled()
+    {
         PageBar bar;
         dtv::core::PagerState state;
         state.page = 1;
@@ -34,7 +36,8 @@ private slots:
         QCOMPARE(state.canLast(), false);
     }
 
-    void testKnownTotalNavigationStates() {
+    void testKnownTotalNavigationStates()
+    {
         PageBar bar;
         dtv::core::PagerState state;
         state.pageSize = 500;
@@ -65,7 +68,8 @@ private slots:
         QCOMPARE(state.canLast(), false);
     }
 
-    void testButtonSignals() {
+    void testButtonSignals()
+    {
         PageBar bar;
         QSignalSpy spyFirst(&bar, &PageBar::firstClicked);
         QSignalSpy spyPrev(&bar, &PageBar::prevClicked);
@@ -97,7 +101,8 @@ private slots:
         QCOMPARE(spyLast.count(), 1);
     }
 
-    void testShortcutHints() {
+    void testShortcutHints()
+    {
         PageBar bar;
         const QList<QPushButton *> buttons = bar.findChildren<QPushButton *>();
         QCOMPARE(buttons.size(), 4);
@@ -123,7 +128,8 @@ private slots:
         QCOMPARE(buttons.at(3)->toolTip(), QString("Last page"));
     }
 
-    void testDprThemeScaling() {
+    void testDprThemeScaling()
+    {
         PageBar bar;
         bar.updateTheme(false, 1.0);
         QCOMPARE(bar.height(), 28);

@@ -29,8 +29,7 @@ public:
     void setData(std::shared_ptr<const core::TableData> data);
     void setPageData(std::shared_ptr<const core::TableData> data,
                      std::vector<core::RefetchKey> keys = {},
-                     std::vector<std::vector<bool>> clamped = {},
-                     int64_t rowOffset = 0);
+                     std::vector<std::vector<bool>> clamped = {}, int64_t rowOffset = 0);
     void clear();
 
     void setPagedMode(bool paged);
@@ -44,7 +43,10 @@ public:
     void selectCell(int row, int col);
     void setCopyAction(QAction *action);
     void setShowRowIndex(bool show);
-    bool showRowIndex() const { return m_showRowIndex; }
+    bool showRowIndex() const
+    {
+        return m_showRowIndex;
+    }
     void updateTheme(bool dark, qreal dpr);
 
     void setStateKey(const QString &key); // includes parser-format and table name
@@ -57,7 +59,8 @@ public:
 signals:
     void filterCountChanged(int matches);
     void requestFilter(const QString &text);
-    void currentItemChanged(const QString &header, const QString &value, int modelRow = -1, int modelCol = -1);
+    void currentItemChanged(const QString &header, const QString &value, int modelRow = -1,
+                            int modelCol = -1);
     void pageUpRequested();
     void pageDownRequested();
     void refetchRowsRequested(uint64_t copyRequestId, bool isMarkdown,
@@ -69,8 +72,9 @@ public slots:
     void copyAsMarkdown();
     void resizeColumnsToFit();
     void filterBySelection();
-    void onRefetchRowsCompleted(uint64_t copyRequestId,
-                                const std::vector<std::pair<int, dtv::core::RefetchResult>> &results);
+    void
+    onRefetchRowsCompleted(uint64_t copyRequestId,
+                           const std::vector<std::pair<int, dtv::core::RefetchResult>> &results);
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
@@ -119,12 +123,15 @@ private:
     std::optional<PendingCopy> m_pendingCopy;
 
     // Raw cell value: refetched full text for clamped cells, displayed text otherwise.
-    QString rawCellText(const PendingCopyCell &cell,
-                        const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
-    QString buildPlainText(const std::vector<PendingCopyCell> &cells,
-                           const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
-    QString buildMarkdownText(const std::vector<PendingCopyCell> &cells,
-                              const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
+    QString rawCellText(
+        const PendingCopyCell &cell,
+        const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
+    QString buildPlainText(
+        const std::vector<PendingCopyCell> &cells,
+        const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
+    QString buildMarkdownText(
+        const std::vector<PendingCopyCell> &cells,
+        const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const;
 };
 
 } // namespace ui

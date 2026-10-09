@@ -9,7 +9,7 @@ namespace dtv::ui {
 namespace {
 bool isModifierKey(Qt::Key key)
 {
-    switch (key) {
+    switch(key) {
     case Qt::Key_Shift:
     case Qt::Key_Control:
     case Qt::Key_Meta:
@@ -23,12 +23,12 @@ bool isModifierKey(Qt::Key key)
 
 bool isValidKeySequence(const QKeySequence &seq)
 {
-    if (seq.isEmpty()) {
+    if(seq.isEmpty()) {
         return false;
     }
-    for (int i = 0; i < seq.count(); ++i) {
+    for(int i = 0; i < seq.count(); ++i) {
         const Qt::Key key = seq[i].key();
-        if (key == Qt::Key_unknown || key == 0 || isModifierKey(key)) {
+        if(key == Qt::Key_unknown || key == 0 || isModifierKey(key)) {
             return false;
         }
     }
@@ -38,14 +38,13 @@ bool isValidKeySequence(const QKeySequence &seq)
 
 ActionRegistry::ActionRegistry(QWidget *parentWidget)
     : QObject(nullptr), m_parentWidget(parentWidget)
-{
-}
+{}
 
 ActionRegistry::~ActionRegistry()
 {
-    for (auto &pair : m_actions) {
-        if (pair.second) {
-            if (m_parentWidget) {
+    for(auto &pair : m_actions) {
+        if(pair.second) {
+            if(m_parentWidget) {
                 m_parentWidget->removeAction(pair.second);
             }
             delete pair.second.data();
@@ -59,16 +58,16 @@ void ActionRegistry::loadShortcuts(QSettings &settings)
 
     settings.beginGroup("Shortcuts");
     const QStringList keys = settings.childKeys();
-    for (const QString &key : keys) {
+    for(const QString &key : keys) {
         m_configuredValues[key] = settings.value(key).toString().trimmed();
     }
     settings.endGroup();
 
     // Re-resolve shortcuts for all registered actions
     m_boundShortcuts.clear();
-    for (const QString &id : m_order) {
+    for(const QString &id : m_order) {
         auto actIt = m_actions.find(id);
-        if (actIt != m_actions.end() && actIt->second) {
+        if(actIt != m_actions.end() && actIt->second) {
             resolveAndApplyShortcut(id, actIt->second.data(), m_defaultShortcuts[id]);
         }
     }
@@ -77,10 +76,10 @@ void ActionRegistry::loadShortcuts(QSettings &settings)
 void ActionRegistry::saveDefaultsIfMissing(QSettings &settings)
 {
     settings.beginGroup("Shortcuts");
-    for (const QString &id : m_order) {
-        if (!settings.contains(id)) {
+    for(const QString &id : m_order) {
+        if(!settings.contains(id)) {
             auto it = m_defaultShortcuts.find(id);
-            if (it != m_defaultShortcuts.end() && !it->second.isEmpty()) {
+            if(it != m_defaultShortcuts.end() && !it->second.isEmpty()) {
                 settings.setValue(id, it->second.toString(QKeySequence::PortableText));
             }
         }
@@ -90,13 +89,13 @@ void ActionRegistry::saveDefaultsIfMissing(QSettings &settings)
 
 QAction *ActionRegistry::registerAction(const ActionDescriptor &desc)
 {
-    if (desc.id.isEmpty()) {
+    if(desc.id.isEmpty()) {
         return nullptr;
     }
 
     auto existingIt = m_actions.find(desc.id);
-    if (existingIt != m_actions.end()) {
-        if (existingIt->second) {
+    if(existingIt != m_actions.end()) {
+        if(existingIt->second) {
             return existingIt->second.data();
         }
         // The action object was destroyed externally; drop the stale record so
@@ -111,11 +110,11 @@ QAction *ActionRegistry::registerAction(const ActionDescriptor &desc)
     act->setCheckable(desc.checkable);
     act->setShortcutContext(Qt::WidgetWithChildrenShortcut);
 
-    if (m_parentWidget) {
+    if(m_parentWidget) {
         m_parentWidget->addAction(act);
     }
 
-    if (desc.onTriggered) {
+    if(desc.onTriggered) {
         connect(act, &QAction::triggered, this, [fn = desc.onTriggered](bool) {
             fn();
         });
@@ -132,8 +131,7 @@ QAction *ActionRegistry::registerAction(const ActionDescriptor &desc)
 
 QAction *ActionRegistry::registerAction(const QString &id, const QString &text,
                                         const QKeySequence &defaultShortcut,
-                                        std::function<void()> onTriggered,
-                                        bool checkable)
+                                        std::function<void()> onTriggered, bool checkable)
 {
     ActionDescriptor desc;
     desc.id = id;
@@ -144,22 +142,24 @@ QAction *ActionRegistry::registerAction(const QString &id, const QString &text,
     return registerAction(desc);
 }
 
-void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act, const QKeySequence &defaultSeq)
+void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act,
+                                             const QKeySequence &defaultSeq)
 {
     QKeySequence effective = defaultSeq;
 
     auto confIt = m_configuredValues.find(id);
-    if (confIt != m_configuredValues.end() && !confIt->second.isEmpty()) {
+    if(confIt != m_configuredValues.end() && !confIt->second.isEmpty()) {
         QKeySequence parsed = QKeySequence::fromString(confIt->second, QKeySequence::PortableText);
-        if (!isValidKeySequence(parsed)) {
+        if(!isValidKeySequence(parsed)) {
             parsed = QKeySequence::fromString(confIt->second, QKeySequence::NativeText);
         }
-        if (isValidKeySequence(parsed)) {
+        if(isValidKeySequence(parsed)) {
             effective = parsed;
         } else {
             const QString warnKey = id + ":" + confIt->second;
-            if (m_warnedInvalid.insert(warnKey).second) {
-                qWarning() << "[ActionRegistry] Invalid shortcut" << confIt->second << "for action" << id << "- falling back to default";
+            if(m_warnedInvalid.insert(warnKey).second) {
+                qWarning() << "[ActionRegistry] Invalid shortcut" << confIt->second << "for action"
+                           << id << "- falling back to default";
             }
         }
     }
@@ -168,13 +168,13 @@ void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act, co
     act->setShortcut(effective);
 
     // Duplicate key detection and warning
-    if (!effective.isEmpty()) {
+    if(!effective.isEmpty()) {
         const QString seqStr = effective.toString(QKeySequence::PortableText);
-        if (!seqStr.isEmpty()) {
+        if(!seqStr.isEmpty()) {
             auto boundIt = m_boundShortcuts.find(seqStr);
-            if (boundIt != m_boundShortcuts.end() && boundIt->second != id) {
+            if(boundIt != m_boundShortcuts.end() && boundIt->second != id) {
                 const QString warnPair = boundIt->second + ":" + id + ":" + seqStr;
-                if (m_warnedDuplicates.insert(warnPair).second) {
+                if(m_warnedDuplicates.insert(warnPair).second) {
                     qWarning() << "[ActionRegistry] Duplicate shortcut" << seqStr
                                << "between action" << boundIt->second << "and action" << id;
                 }

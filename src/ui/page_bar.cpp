@@ -63,8 +63,8 @@ const core::PagerState &PageBar::pagerState() const
 
 bool PageBar::shouldBeVisible() const
 {
-    if (m_state.page <= 1 && !m_state.hasMore &&
-        (!m_state.total.has_value() || *m_state.total <= m_state.pageSize)) {
+    if(m_state.page <= 1 && !m_state.hasMore &&
+       (!m_state.total.has_value() || *m_state.total <= m_state.pageSize)) {
         return false;
     }
     return true;
@@ -89,7 +89,7 @@ void PageBar::updateTheme(bool dark, qreal dpr)
     m_btnNext->setFixedSize(btnSize, btnSize);
     m_btnLast->setFixedSize(btnSize, btnSize);
 
-    if (auto *lay = qobject_cast<QHBoxLayout*>(layout())) {
+    if(auto *lay = qobject_cast<QHBoxLayout *>(layout())) {
         lay->setContentsMargins(qRound(12 * m_dpr), 0, qRound(12 * m_dpr), 0);
         lay->setSpacing(qRound(6 * m_dpr));
     }
@@ -107,8 +107,8 @@ void PageBar::updateTheme(bool dark, qreal dpr)
     updateIcons();
 }
 
-void PageBar::setShortcutHints(const QString &first, const QString &prev,
-                               const QString &next, const QString &last)
+void PageBar::setShortcutHints(const QString &first, const QString &prev, const QString &next,
+                               const QString &last)
 {
     m_hintFirst = first;
     m_hintPrev = prev;
@@ -119,10 +119,14 @@ void PageBar::setShortcutHints(const QString &first, const QString &prev,
 
 void PageBar::updateTooltips()
 {
-    m_btnFirst->setToolTip(m_hintFirst.isEmpty() ? tr("First page") : tr("First page (%1)").arg(m_hintFirst));
-    m_btnPrev->setToolTip(m_hintPrev.isEmpty() ? tr("Previous page") : tr("Previous page (%1)").arg(m_hintPrev));
-    m_btnNext->setToolTip(m_hintNext.isEmpty() ? tr("Next page") : tr("Next page (%1)").arg(m_hintNext));
-    m_btnLast->setToolTip(m_hintLast.isEmpty() ? tr("Last page") : tr("Last page (%1)").arg(m_hintLast));
+    m_btnFirst->setToolTip(m_hintFirst.isEmpty() ? tr("First page")
+                                                 : tr("First page (%1)").arg(m_hintFirst));
+    m_btnPrev->setToolTip(m_hintPrev.isEmpty() ? tr("Previous page")
+                                               : tr("Previous page (%1)").arg(m_hintPrev));
+    m_btnNext->setToolTip(m_hintNext.isEmpty() ? tr("Next page")
+                                               : tr("Next page (%1)").arg(m_hintNext));
+    m_btnLast->setToolTip(m_hintLast.isEmpty() ? tr("Last page")
+                                               : tr("Last page (%1)").arg(m_hintLast));
 }
 
 void PageBar::updateIcons()
@@ -145,13 +149,13 @@ void PageBar::updateIcons()
 
 void PageBar::updateDisplay()
 {
-    if (m_state.total.has_value()) {
+    if(m_state.total.has_value()) {
         m_labelPage->setText(QString("%1 / %2").arg(m_state.page).arg(m_state.pages()));
     } else {
         m_labelPage->setText(QString("%1 / ...").arg(m_state.page));
     }
 
-    if (m_busy) {
+    if(m_busy) {
         m_btnFirst->setEnabled(false);
         m_btnPrev->setEnabled(false);
         m_btnNext->setEnabled(false);

@@ -41,8 +41,9 @@ private slots:
         const std::string path = dir.filePath(name).toUtf8().toStdString();
         sqlite3 *db = nullptr;
         QCOMPARE(sqlite3_open(path.c_str(), &db), SQLITE_OK);
-        const int rc = sqlite3_exec(db, "CREATE TABLE items(value TEXT); INSERT INTO items VALUES('ok')",
-                                    nullptr, nullptr, nullptr);
+        const int rc =
+            sqlite3_exec(db, "CREATE TABLE items(value TEXT); INSERT INTO items VALUES('ok')",
+                         nullptr, nullptr, nullptr);
         sqlite3_close(db);
         QCOMPARE(rc, SQLITE_OK);
         auto opened = dtv::parsers::openReadOnly(path);

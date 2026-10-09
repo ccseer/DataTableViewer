@@ -79,7 +79,8 @@ void SearchBar::selectAll()
 void SearchBar::setPagedMode(bool paged)
 {
     if(m_edit) {
-        m_edit->setPlaceholderText(paged ? tr("Filter current page") : tr("Filter current view..."));
+        m_edit->setPlaceholderText(paged ? tr("Filter current page")
+                                         : tr("Filter current view..."));
     }
 }
 

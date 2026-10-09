@@ -17,10 +17,7 @@
 
 namespace dtv::workers {
 
-enum class SourceKind {
-    Sqlite,
-    Csv
-};
+enum class SourceKind { Sqlite, Csv };
 
 struct SourceOpenDescriptor {
     SourceKind kind = SourceKind::Sqlite;
@@ -49,11 +46,10 @@ void registerWorkerMetatypes();
 class SourceWorker : public QObject {
     Q_OBJECT
 public:
-    explicit SourceWorker(
-        std::shared_ptr<std::atomic<uint64_t>> viewGen = nullptr,
-        std::shared_ptr<std::atomic<uint64_t>> opGen = nullptr,
-        std::unique_ptr<core::ITableSource> source = nullptr,
-        QObject *parent = nullptr);
+    explicit SourceWorker(std::shared_ptr<std::atomic<uint64_t>> viewGen = nullptr,
+                          std::shared_ptr<std::atomic<uint64_t>> opGen = nullptr,
+                          std::unique_ptr<core::ITableSource> source = nullptr,
+                          QObject *parent = nullptr);
     ~SourceWorker() override;
 
     std::shared_ptr<std::atomic<uint64_t>> viewGen() const;
@@ -69,7 +65,8 @@ public:
     void setFinishHook(Hook hook);
 
 public slots:
-    void openDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::workers::SourceOpenDescriptor &desc);
+    void openDescriptor(uint64_t viewGen, uint64_t opGen,
+                        const dtv::workers::SourceOpenDescriptor &desc);
     void open(uint64_t viewGen, uint64_t opGen, const QString &path, const QString &tableName);
     void first(uint64_t viewGen, uint64_t opGen, int pageSize);
     void next(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token, int pageSize);
@@ -95,13 +92,13 @@ signals:
 private:
     bool isStale(uint64_t viewGen, uint64_t opGen) const;
     bool isViewStale(uint64_t viewGen) const;
-    void applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> opGen = std::nullopt, uint64_t startSeq = 0);
+    void applyCancelCheck(uint64_t viewGen, std::optional<uint64_t> opGen = std::nullopt,
+                          uint64_t startSeq = 0);
 
     template <typename Func, typename IsCancelledFunc, typename IsStaleFunc>
     auto executeWithInterruptRetry(Func &&fn, IsCancelledFunc &&isCancelled, IsStaleFunc &&isStale);
 
-    template <typename F>
-    void executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryFunc);
+    template <typename F> void executePageQuery(uint64_t viewGen, uint64_t opGen, F &&queryFunc);
 
     struct PendingPageRequest {
         uint64_t viewGen = 0;

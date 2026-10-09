@@ -47,7 +47,8 @@ private slots:
     void testSortFailureReportsReasonForNonSqliteSource();
 
 signals:
-    void reqOpenDescriptor(uint64_t viewGen, uint64_t opGen, const dtv::workers::SourceOpenDescriptor &desc);
+    void reqOpenDescriptor(uint64_t viewGen, uint64_t opGen,
+                           const dtv::workers::SourceOpenDescriptor &desc);
     void reqOpen(uint64_t viewGen, uint64_t opGen, const QString &path, const QString &tableName);
     void reqFirst(uint64_t viewGen, uint64_t opGen, int pageSize);
     void reqNext(uint64_t viewGen, uint64_t opGen, const dtv::core::PageToken &token, int pageSize);
@@ -70,18 +71,20 @@ private:
     QString createCsvFile(const QString &fileName, int rowCount);
 };
 
-bool TestSourceWorker::createStandardDb(const QString &filePath, int rowCount) {
+bool TestSourceWorker::createStandardDb(const QString &filePath, int rowCount)
+{
     sqlite3 *db = nullptr;
-    if (sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
+    if(sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
         return false;
     }
     // default journal mode
-    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, score REAL);",
-                 nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, score REAL);", nullptr,
+                 nullptr, nullptr);
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     sqlite3_stmt *stmt = nullptr;
-    sqlite3_prepare_v2(db, "INSERT INTO items (id, name, score) VALUES (?1, ?2, ?3);", -1, &stmt, nullptr);
-    for (int i = 1; i <= rowCount; ++i) {
+    sqlite3_prepare_v2(db, "INSERT INTO items (id, name, score) VALUES (?1, ?2, ?3);", -1, &stmt,
+                       nullptr);
+    for(int i = 1; i <= rowCount; ++i) {
         sqlite3_bind_int64(stmt, 1, i);
         std::string name = "Item_" + std::to_string(i);
         sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_STATIC);
@@ -95,30 +98,33 @@ bool TestSourceWorker::createStandardDb(const QString &filePath, int rowCount) {
     return true;
 }
 
-bool TestSourceWorker::createMultiMillionDb(const QString &filePath, int rowCount) {
+bool TestSourceWorker::createMultiMillionDb(const QString &filePath, int rowCount)
+{
     sqlite3 *db = nullptr;
-    if (sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
+    if(sqlite3_open(filePath.toUtf8().constData(), &db) != SQLITE_OK) {
         return false;
     }
-    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr, nullptr);
+    sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr,
+                 nullptr);
     sqlite3_exec(db, "CREATE TABLE big_items (id INTEGER PRIMARY KEY, name TEXT, score REAL);",
                  nullptr, nullptr, nullptr);
-    std::string sql =
-        "WITH RECURSIVE cnt(x) AS ("
-        "  SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < " + std::to_string(rowCount) +
-        ") "
-        "INSERT INTO big_items(id, name, score) "
-        "SELECT x, 'Item_' || x, (x * 1.5) FROM cnt;";
+    std::string sql = "WITH RECURSIVE cnt(x) AS ("
+                      "  SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < " +
+                      std::to_string(rowCount) +
+                      ") "
+                      "INSERT INTO big_items(id, name, score) "
+                      "SELECT x, 'Item_' || x, (x * 1.5) FROM cnt;";
     char *errmsg = nullptr;
     int rc = sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errmsg);
-    if (errmsg) {
+    if(errmsg) {
         sqlite3_free(errmsg);
     }
     sqlite3_close(db);
     return rc == SQLITE_OK;
 }
 
-void TestSourceWorker::initTestCase() {
+void TestSourceWorker::initTestCase()
+{
     registerWorkerMetatypes();
     m_tempDir = std::make_unique<QTemporaryDir>();
     QVERIFY(m_tempDir->isValid());
@@ -129,11 +135,13 @@ void TestSourceWorker::initTestCase() {
     QVERIFY(createMultiMillionDb(m_bigDbPath, 2000000));
 }
 
-void TestSourceWorker::cleanupTestCase() {
+void TestSourceWorker::cleanupTestCase()
+{
     m_tempDir.reset();
 }
 
-void TestSourceWorker::testStartupAndOpen() {
+void TestSourceWorker::testStartupAndOpen()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -167,7 +175,8 @@ void TestSourceWorker::testStartupAndOpen() {
     thread.wait();
 }
 
-void TestSourceWorker::testFirstPage() {
+void TestSourceWorker::testFirstPage()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -206,7 +215,8 @@ void TestSourceWorker::testFirstPage() {
     thread.wait();
 }
 
-void TestSourceWorker::testNextPage() {
+void TestSourceWorker::testNextPage()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -244,7 +254,8 @@ void TestSourceWorker::testNextPage() {
     thread.wait();
 }
 
-void TestSourceWorker::testPrevPage() {
+void TestSourceWorker::testPrevPage()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -285,7 +296,8 @@ void TestSourceWorker::testPrevPage() {
     thread.wait();
 }
 
-void TestSourceWorker::testLastPage() {
+void TestSourceWorker::testLastPage()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -318,7 +330,8 @@ void TestSourceWorker::testLastPage() {
     thread.wait();
 }
 
-void TestSourceWorker::testStaleQueuedRequestDiscarded() {
+void TestSourceWorker::testStaleQueuedRequestDiscarded()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -356,7 +369,8 @@ void TestSourceWorker::testStaleQueuedRequestDiscarded() {
     thread.wait();
 }
 
-void TestSourceWorker::testViewGenCancellation() {
+void TestSourceWorker::testViewGenCancellation()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -388,7 +402,8 @@ void TestSourceWorker::testViewGenCancellation() {
     thread.wait();
 }
 
-void TestSourceWorker::testOpGenCancellation() {
+void TestSourceWorker::testOpGenCancellation()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -440,7 +455,8 @@ void TestSourceWorker::testOpGenCancellation() {
     threadCount.wait();
 }
 
-void TestSourceWorker::testCountProceedingWhileNavigationContinues() {
+void TestSourceWorker::testCountProceedingWhileNavigationContinues()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -493,7 +509,8 @@ void TestSourceWorker::testCountProceedingWhileNavigationContinues() {
     threadCount.wait();
 }
 
-void TestSourceWorker::testCountCancellationAndLatency() {
+void TestSourceWorker::testCountCancellationAndLatency()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
 
     BackgroundThread thread;
@@ -528,7 +545,8 @@ void TestSourceWorker::testCountCancellationAndLatency() {
     QTRY_VERIFY_WITH_TIMEOUT(finished.load(), 5000);
     QVERIFY(interrupted.load());
 
-    auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(finishTime - interruptTime).count();
+    auto latencyMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(finishTime - interruptTime).count();
     qInfo("Measured CountWorker cancellation latency: %lld ms", static_cast<long long>(latencyMs));
 
     // Interruption must settle promptly (< 100 ms)
@@ -541,7 +559,8 @@ void TestSourceWorker::testCountCancellationAndLatency() {
     thread.wait();
 }
 
-void TestSourceWorker::testSortCancellation() {
+void TestSourceWorker::testSortCancellation()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -566,7 +585,7 @@ void TestSourceWorker::testSortCancellation() {
     QVERIFY(spyOpen.wait(5000));
 
     worker.setProgressHook([&]() {
-        if (!interrupted.exchange(true)) {
+        if(!interrupted.exchange(true)) {
             interruptTime = std::chrono::steady_clock::now();
             worker.interrupt();
             opGen->fetch_add(1);
@@ -574,7 +593,7 @@ void TestSourceWorker::testSortCancellation() {
     });
 
     worker.setFinishHook([&]() {
-        if (interrupted.load()) {
+        if(interrupted.load()) {
             finishTime = std::chrono::steady_clock::now();
             finished = true;
         }
@@ -586,7 +605,8 @@ void TestSourceWorker::testSortCancellation() {
     QTRY_VERIFY_WITH_TIMEOUT(finished.load(), 5000);
     QVERIFY(interrupted.load());
 
-    auto latencyMs = std::chrono::duration_cast<std::chrono::milliseconds>(finishTime - interruptTime).count();
+    auto latencyMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(finishTime - interruptTime).count();
     qInfo("Measured sort cancellation latency: %lld ms", static_cast<long long>(latencyMs));
     QVERIFY(latencyMs < 2000);
 
@@ -597,7 +617,8 @@ void TestSourceWorker::testSortCancellation() {
     thread.wait();
 }
 
-void TestSourceWorker::testInterruptRetryWhenCurrent() {
+void TestSourceWorker::testInterruptRetryWhenCurrent()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -633,7 +654,8 @@ void TestSourceWorker::testInterruptRetryWhenCurrent() {
     thread.wait();
 }
 
-void TestSourceWorker::testCancelInFlightWithoutGenBumpDoesNotRetry() {
+void TestSourceWorker::testCancelInFlightWithoutGenBumpDoesNotRetry()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -656,7 +678,7 @@ void TestSourceWorker::testCancelInFlightWithoutGenBumpDoesNotRetry() {
     std::atomic<bool> finished{false};
 
     worker.setProgressHook([&]() {
-        if (!interrupted.exchange(true)) {
+        if(!interrupted.exchange(true)) {
             interruptCalls.fetch_add(1);
             worker.interrupt();
         }
@@ -672,7 +694,7 @@ void TestSourceWorker::testCancelInFlightWithoutGenBumpDoesNotRetry() {
 
     QCOMPARE(interruptCalls.load(), 1);
 
-    if (spySort.isEmpty()) {
+    if(spySort.isEmpty()) {
         QVERIFY(spySort.wait(1000));
     }
     QCOMPARE(spySort.count(), 1);
@@ -683,7 +705,8 @@ void TestSourceWorker::testCancelInFlightWithoutGenBumpDoesNotRetry() {
     thread.wait();
 }
 
-void TestSourceWorker::testOpenPreservesCancelCheckAndAborts() {
+void TestSourceWorker::testOpenPreservesCancelCheckAndAborts()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -710,7 +733,8 @@ void TestSourceWorker::testOpenPreservesCancelCheckAndAborts() {
     thread.wait();
 }
 
-void TestSourceWorker::testAbortedOpenClosesDbAndReleasesLock() {
+void TestSourceWorker::testAbortedOpenClosesDbAndReleasesLock()
+{
     QString lockDbPath = m_tempDir->filePath("lock_test.db");
     QVERIFY(createStandardDb(lockDbPath, 10));
 
@@ -722,7 +746,7 @@ void TestSourceWorker::testAbortedOpenClosesDbAndReleasesLock() {
 
         bool ok = source.open(lockDbPath.toStdString(), "non_existent_table");
         QVERIFY(!ok);
-        QCOMPARE(handle->db(), static_cast<sqlite3*>(nullptr));
+        QCOMPARE(handle->db(), static_cast<sqlite3 *>(nullptr));
 
         // On Windows, if db handle was leaked, QFile::remove would fail due to file lock
         QVERIFY(QFile::remove(lockDbPath));
@@ -737,18 +761,21 @@ void TestSourceWorker::testAbortedOpenClosesDbAndReleasesLock() {
         auto handle = source.interruptHandle();
         QVERIFY(handle != nullptr);
 
-        source.setCancelCheck([]() { return true; });
+        source.setCancelCheck([]() {
+            return true;
+        });
 
         bool ok = source.open(lockDbPath.toStdString(), "items");
         QVERIFY(!ok);
         QCOMPARE(source.error(), std::string("Cancelled"));
-        QCOMPARE(handle->db(), static_cast<sqlite3*>(nullptr));
+        QCOMPARE(handle->db(), static_cast<sqlite3 *>(nullptr));
 
         QVERIFY(QFile::remove(lockDbPath));
     }
 }
 
-void TestSourceWorker::testShutdownAndConnectionCleanup() {
+void TestSourceWorker::testShutdownAndConnectionCleanup()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -772,9 +799,9 @@ void TestSourceWorker::testShutdownAndConnectionCleanup() {
 
     // Open connection
     QSignalSpy spyOpen(sourceWorker, &SourceWorker::openCompleted);
-    QMetaObject::invokeMethod(sourceWorker, "open", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1),
-                              Q_ARG(QString, m_dbPath), Q_ARG(QString, "items"));
+    QMetaObject::invokeMethod(sourceWorker, "open", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(QString, m_dbPath),
+                              Q_ARG(QString, "items"));
     QVERIFY(spyOpen.wait(5000));
     QVERIFY(sourceHandle->db() != nullptr);
 
@@ -785,12 +812,12 @@ void TestSourceWorker::testShutdownAndConnectionCleanup() {
     QMetaObject::invokeMethod(sourceWorker, "shutdown", Qt::QueuedConnection);
     QMetaObject::invokeMethod(countWorker, "shutdown", Qt::QueuedConnection);
 
-    if (spySourceDestroyed.isEmpty()) {
+    if(spySourceDestroyed.isEmpty()) {
         QVERIFY(spySourceDestroyed.wait(5000));
     }
     QCOMPARE(spySourceDestroyed.count(), 1);
 
-    if (spyCountDestroyed.isEmpty()) {
+    if(spyCountDestroyed.isEmpty()) {
         QVERIFY(spyCountDestroyed.wait(5000));
     }
     QCOMPARE(spyCountDestroyed.count(), 1);
@@ -800,26 +827,28 @@ void TestSourceWorker::testShutdownAndConnectionCleanup() {
     threadCount.reset();
 
     // After shutdown and destruction, connection handles must be cleared
-    QCOMPARE(sourceHandle->db(), static_cast<sqlite3*>(nullptr));
-    QCOMPARE(countHandle->db(), static_cast<sqlite3*>(nullptr));
+    QCOMPARE(sourceHandle->db(), static_cast<sqlite3 *>(nullptr));
+    QCOMPARE(countHandle->db(), static_cast<sqlite3 *>(nullptr));
 }
 
-QString TestSourceWorker::createCsvFile(const QString &fileName, int rowCount) {
+QString TestSourceWorker::createCsvFile(const QString &fileName, int rowCount)
+{
     QString path = m_tempDir->filePath(fileName);
     QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         return QString();
     }
     QTextStream out(&file);
     out << "id,name,score\n";
-    for (int i = 1; i <= rowCount; ++i) {
+    for(int i = 1; i <= rowCount; ++i) {
         out << i << ",Item_" << i << "," << (i * 1.5) << "\n";
     }
     file.close();
     return path;
 }
 
-void TestSourceWorker::testCsvOpenAndFirstPage() {
+void TestSourceWorker::testCsvOpenAndFirstPage()
+{
     QString csvPath = createCsvFile("first_page.csv", 3000);
     QVERIFY(!csvPath.isEmpty());
 
@@ -836,17 +865,16 @@ void TestSourceWorker::testCsvOpenAndFirstPage() {
     QSignalSpy spyProgress(worker, &SourceWorker::indexProgress);
 
     SourceOpenDescriptor desc{SourceKind::Csv, csvPath, "", ','};
-    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1),
-                              Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
+    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
 
     QVERIFY(spyOpen.wait(5000));
     QCOMPARE(spyOpen.count(), 1);
     QCOMPARE(spyOpen.at(0).at(2).toBool(), true); // ok == true
 
     // Request first page
-    QMetaObject::invokeMethod(worker, "first", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1), Q_ARG(int, 500));
+    QMetaObject::invokeMethod(worker, "first", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(int, 500));
 
     QVERIFY(spyPage.wait(2000));
     QCOMPARE(spyPage.count(), 1);
@@ -857,16 +885,16 @@ void TestSourceWorker::testCsvOpenAndFirstPage() {
 
     // Wait for indexing to complete
     bool completed = false;
-    for (int attempt = 0; attempt < 50 && !completed; ++attempt) {
-        if (!spyProgress.isEmpty()) {
-            for (const auto &sig : spyProgress) {
-                if (sig.at(2).toBool()) { // isComplete
+    for(int attempt = 0; attempt < 50 && !completed; ++attempt) {
+        if(!spyProgress.isEmpty()) {
+            for(const auto &sig : spyProgress) {
+                if(sig.at(2).toBool()) { // isComplete
                     completed = true;
                     break;
                 }
             }
         }
-        if (!completed) {
+        if(!completed) {
             spyProgress.wait(100);
         }
     }
@@ -877,7 +905,8 @@ void TestSourceWorker::testCsvOpenAndFirstPage() {
     thread->wait();
 }
 
-void TestSourceWorker::testCsvPendingPageWaitAndFulfillment() {
+void TestSourceWorker::testCsvPendingPageWaitAndFulfillment()
+{
     // 15,000 rows requires multiple 256 KiB slices
     QString csvPath = createCsvFile("pending_page.csv", 15000);
     QVERIFY(!csvPath.isEmpty());
@@ -894,9 +923,8 @@ void TestSourceWorker::testCsvPendingPageWaitAndFulfillment() {
     QSignalSpy spyPage(worker, &SourceWorker::pageReady);
 
     SourceOpenDescriptor desc{SourceKind::Csv, csvPath, "", ','};
-    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1),
-                              Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
+    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
 
     QVERIFY(spyOpen.wait(5000));
 
@@ -906,9 +934,9 @@ void TestSourceWorker::testCsvPendingPageWaitAndFulfillment() {
     token.valid = true;
 
     opGen->store(2);
-    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 2),
-                              Q_ARG(dtv::core::PageToken, token), Q_ARG(int, 500));
+    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 2), Q_ARG(dtv::core::PageToken, token),
+                              Q_ARG(int, 500));
 
     // Must wait for background indexing slices to reach ordinal 12,000
     QVERIFY(spyPage.wait(5000));
@@ -923,7 +951,8 @@ void TestSourceWorker::testCsvPendingPageWaitAndFulfillment() {
     thread->wait();
 }
 
-void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive() {
+void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive()
+{
     // 60,000 rows (approx 1.4 MiB) ensures both requests are far beyond the initial 256 KiB slice (~11,669 rows)
     QString csvPath = createCsvFile("supersede.csv", 60000);
     QVERIFY(!csvPath.isEmpty());
@@ -941,9 +970,8 @@ void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive()
     QSignalSpy spyProgress(worker, &SourceWorker::indexProgress);
 
     SourceOpenDescriptor desc{SourceKind::Csv, csvPath, "", ','};
-    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1),
-                              Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
+    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
 
     QVERIFY(spyOpen.wait(5000));
 
@@ -959,15 +987,15 @@ void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive()
 
     // Issue request A with opGen 2
     opGen->store(2);
-    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 2),
-                              Q_ARG(dtv::core::PageToken, tokenA), Q_ARG(int, 500));
+    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 2), Q_ARG(dtv::core::PageToken, tokenA),
+                              Q_ARG(int, 500));
 
     // Immediately supersede with request B with opGen 3
     opGen->store(3);
-    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 3),
-                              Q_ARG(dtv::core::PageToken, tokenB), Q_ARG(int, 500));
+    QMetaObject::invokeMethod(worker, "next", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 3), Q_ARG(dtv::core::PageToken, tokenB),
+                              Q_ARG(int, 500));
 
     // Neither request should have arrived immediately (both genuinely pending)
     QCOMPARE(spyPage.count(), 0);
@@ -981,16 +1009,16 @@ void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive()
 
     // Verify background indexing still reaches EOF despite opGen bump
     bool completed = false;
-    for (int attempt = 0; attempt < 50 && !completed; ++attempt) {
-        if (!spyProgress.isEmpty()) {
-            for (const auto &sig : spyProgress) {
-                if (sig.at(2).toBool()) {
+    for(int attempt = 0; attempt < 50 && !completed; ++attempt) {
+        if(!spyProgress.isEmpty()) {
+            for(const auto &sig : spyProgress) {
+                if(sig.at(2).toBool()) {
                     completed = true;
                     break;
                 }
             }
         }
-        if (!completed) {
+        if(!completed) {
             spyProgress.wait(100);
         }
     }
@@ -1001,7 +1029,8 @@ void TestSourceWorker::testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive()
     thread->wait();
 }
 
-void TestSourceWorker::testCsvViewGenCancellationStopsIndexing() {
+void TestSourceWorker::testCsvViewGenCancellationStopsIndexing()
+{
     // 60,000 rows (multi-slice)
     QString csvPath = createCsvFile("cancel_indexing.csv", 60000);
     QVERIFY(!csvPath.isEmpty());
@@ -1018,9 +1047,8 @@ void TestSourceWorker::testCsvViewGenCancellationStopsIndexing() {
     QSignalSpy spyProgress(worker, &SourceWorker::indexProgress);
 
     SourceOpenDescriptor desc{SourceKind::Csv, csvPath, "", ','};
-    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 1),
-                              Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
+    QMetaObject::invokeMethod(worker, "openDescriptor", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 1), Q_ARG(dtv::workers::SourceOpenDescriptor, desc));
 
     QVERIFY(spyOpen.wait(5000));
 
@@ -1036,8 +1064,8 @@ void TestSourceWorker::testCsvViewGenCancellationStopsIndexing() {
     QCOMPARE(spyProgress.count(), frozenProgress);
 
     // Verify indexing never emitted isComplete for viewGen 1
-    for (const auto &sig : spyProgress) {
-        if (sig.at(0).toULongLong() == 1ULL) {
+    for(const auto &sig : spyProgress) {
+        if(sig.at(0).toULongLong() == 1ULL) {
             QVERIFY(!sig.at(2).toBool()); // isComplete must be false
         }
     }
@@ -1050,29 +1078,60 @@ void TestSourceWorker::testCsvViewGenCancellationStopsIndexing() {
 namespace {
 class MockBudgetTableSource : public dtv::core::ITableSource {
 public:
-    const std::vector<dtv::core::ColumnMeta> &columns() const override { return m_cols; }
-    std::optional<int64_t> rowCount() const override { return 10; }
-    void setKnownTotal(int64_t) override {}
-    dtv::core::PageResult first(int) override { return {}; }
-    dtv::core::PageResult next(const dtv::core::PageToken &, int) override { return {}; }
-    dtv::core::PageResult prev(const dtv::core::PageToken &, int) override { return {}; }
-    dtv::core::PageResult last(int, std::optional<int64_t>) override { return {}; }
-    bool canSort() const override { return false; }
-    bool canRefetch() const override { return true; }
-    bool sort(size_t, bool, dtv::core::CancelCheck = {}) override { return false; }
-    dtv::core::RefetchResult refetch(const dtv::core::RefetchKey &) override {
+    const std::vector<dtv::core::ColumnMeta> &columns() const override
+    {
+        return m_cols;
+    }
+    std::optional<int64_t> rowCount() const override
+    {
+        return 10;
+    }
+    void setKnownTotal(int64_t) override
+    {}
+    dtv::core::PageResult first(int) override
+    {
+        return {};
+    }
+    dtv::core::PageResult next(const dtv::core::PageToken &, int) override
+    {
+        return {};
+    }
+    dtv::core::PageResult prev(const dtv::core::PageToken &, int) override
+    {
+        return {};
+    }
+    dtv::core::PageResult last(int, std::optional<int64_t>) override
+    {
+        return {};
+    }
+    bool canSort() const override
+    {
+        return false;
+    }
+    bool canRefetch() const override
+    {
+        return true;
+    }
+    bool sort(size_t, bool, dtv::core::CancelCheck = {}) override
+    {
+        return false;
+    }
+    dtv::core::RefetchResult refetch(const dtv::core::RefetchKey &) override
+    {
         dtv::core::RefetchResult res;
         res.ok = true;
         res.columns = {0};
         res.values = {std::string(40 * 1024 * 1024, 'X')}; // 40 MiB per row
         return res;
     }
+
 private:
     std::vector<dtv::core::ColumnMeta> m_cols{{"col", dtv::core::ColumnMeta::Type::String}};
 };
 } // namespace
 
-void TestSourceWorker::testRefetchRowsBatchBudget() {
+void TestSourceWorker::testRefetchRowsBatchBudget()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -1092,9 +1151,8 @@ void TestSourceWorker::testRefetchRowsBatchBudget() {
     key.rowid = 2;
     rowKeys.emplace_back(1, key);
 
-    QMetaObject::invokeMethod(worker, "refetchRows", Qt::QueuedConnection,
-                              Q_ARG(uint64_t, 1), Q_ARG(uint64_t, 100),
-                              Q_ARG(RefetchRowKeysList, rowKeys));
+    QMetaObject::invokeMethod(worker, "refetchRows", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 100), Q_ARG(RefetchRowKeysList, rowKeys));
 
     QVERIFY(spyRefetch.wait(5000));
     QCOMPARE(spyRefetch.count(), 1);
@@ -1102,7 +1160,7 @@ void TestSourceWorker::testRefetchRowsBatchBudget() {
     QCOMPARE(results.size(), 2ull);
 
     // Both rows must be invalidated once the budget is exceeded
-    for (const auto &res : results) {
+    for(const auto &res : results) {
         QVERIFY(!res.second.ok);
         QCOMPARE(res.second.error, std::string("Copy budget exceeded (64 MiB)"));
         QVERIFY(res.second.values.empty());
@@ -1113,7 +1171,8 @@ void TestSourceWorker::testRefetchRowsBatchBudget() {
     thread->wait();
 }
 
-void TestSourceWorker::testSortFailureReportsReasonForNonSqliteSource() {
+void TestSourceWorker::testSortFailureReportsReasonForNonSqliteSource()
+{
     auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
     auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
 
@@ -1128,8 +1187,12 @@ void TestSourceWorker::testSortFailureReportsReasonForNonSqliteSource() {
 
     // Called through a functor: size_t has no natural Q_ARG spelling, and the
     // worker's sort slot takes it by value.
-    QMetaObject::invokeMethod(worker, [worker] { worker->sort(1, 1, 0, true); },
-                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        worker,
+        [worker] {
+            worker->sort(1, 1, 0, true);
+        },
+        Qt::QueuedConnection);
 
     QVERIFY(spySort.wait(5000));
     QCOMPARE(spySort.count(), 1);

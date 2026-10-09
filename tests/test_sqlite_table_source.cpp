@@ -10,7 +10,8 @@ struct VirtualTable : sqlite3_vtab {};
 struct VirtualCursor : sqlite3_vtab_cursor {
     int position = 1;
 };
-int virtualConnect(sqlite3 *db, void *, int, const char *const *, sqlite3_vtab **table, char **) {
+int virtualConnect(sqlite3 *db, void *, int, const char *const *, sqlite3_vtab **table, char **)
+{
     const int rc =
         sqlite3_declare_vtab(db, "CREATE TABLE x(id INTEGER PRIMARY KEY,value TEXT) WITHOUT ROWID");
     if(rc != SQLITE_OK)
@@ -18,35 +19,43 @@ int virtualConnect(sqlite3 *db, void *, int, const char *const *, sqlite3_vtab *
     *table = new VirtualTable{};
     return SQLITE_OK;
 }
-int virtualBestIndex(sqlite3_vtab *, sqlite3_index_info *) {
+int virtualBestIndex(sqlite3_vtab *, sqlite3_index_info *)
+{
     return SQLITE_OK;
 }
-int virtualDisconnect(sqlite3_vtab *table) {
+int virtualDisconnect(sqlite3_vtab *table)
+{
     delete static_cast<VirtualTable *>(table);
     return SQLITE_OK;
 }
-int virtualOpen(sqlite3_vtab *table, sqlite3_vtab_cursor **cursor) {
+int virtualOpen(sqlite3_vtab *table, sqlite3_vtab_cursor **cursor)
+{
     auto *c = new VirtualCursor{};
     c->pVtab = table;
     *cursor = c;
     return SQLITE_OK;
 }
-int virtualClose(sqlite3_vtab_cursor *cursor) {
+int virtualClose(sqlite3_vtab_cursor *cursor)
+{
     delete static_cast<VirtualCursor *>(cursor);
     return SQLITE_OK;
 }
-int virtualFilter(sqlite3_vtab_cursor *cursor, int, const char *, int, sqlite3_value **) {
+int virtualFilter(sqlite3_vtab_cursor *cursor, int, const char *, int, sqlite3_value **)
+{
     static_cast<VirtualCursor *>(cursor)->position = 1;
     return SQLITE_OK;
 }
-int virtualNext(sqlite3_vtab_cursor *cursor) {
+int virtualNext(sqlite3_vtab_cursor *cursor)
+{
     ++static_cast<VirtualCursor *>(cursor)->position;
     return SQLITE_OK;
 }
-int virtualEof(sqlite3_vtab_cursor *cursor) {
+int virtualEof(sqlite3_vtab_cursor *cursor)
+{
     return static_cast<VirtualCursor *>(cursor)->position > 3;
 }
-int virtualColumn(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int column) {
+int virtualColumn(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int column)
+{
     const int position = static_cast<VirtualCursor *>(cursor)->position;
     if(column == 0)
         sqlite3_result_int(ctx, position);
@@ -54,10 +63,12 @@ int virtualColumn(sqlite3_vtab_cursor *cursor, sqlite3_context *ctx, int column)
         sqlite3_result_text(ctx, "value", -1, SQLITE_STATIC);
     return SQLITE_OK;
 }
-int virtualRowid(sqlite3_vtab_cursor *, sqlite3_int64 *) {
+int virtualRowid(sqlite3_vtab_cursor *, sqlite3_int64 *)
+{
     return SQLITE_ERROR;
 }
-int registerVirtual(sqlite3 *db, char **, const sqlite3_api_routines *) {
+int registerVirtual(sqlite3 *db, char **, const sqlite3_api_routines *)
+{
     static sqlite3_module module = [] {
         sqlite3_module m{};
         m.iVersion = 1;
@@ -78,11 +89,13 @@ int registerVirtual(sqlite3 *db, char **, const sqlite3_api_routines *) {
     return sqlite3_create_module(db, "dtv_test_rowidless", &module, nullptr);
 }
 struct VirtualRegistration {
-    VirtualRegistration() {
+    VirtualRegistration()
+    {
         if(sqlite3_auto_extension(reinterpret_cast<void (*)()>(registerVirtual)) != SQLITE_OK)
             throw std::runtime_error("auto extension failed");
     }
-    ~VirtualRegistration() {
+    ~VirtualRegistration()
+    {
         sqlite3_cancel_auto_extension(reinterpret_cast<void (*)()>(registerVirtual));
     }
 };
@@ -92,14 +105,16 @@ struct TempFullVfs {
     static bool fail;
     static int failures;
     static sqlite3_vfs *base;
-    static int open(sqlite3_vfs *, const char *name, sqlite3_file *file, int flags, int *outFlags) {
+    static int open(sqlite3_vfs *, const char *name, sqlite3_file *file, int flags, int *outFlags)
+    {
         if(fail && (flags & SQLITE_OPEN_DELETEONCLOSE)) {
             ++failures;
             return SQLITE_FULL;
         }
         return base->xOpen(base, name, file, flags, outFlags);
     }
-    TempFullVfs() : original(sqlite3_vfs_find(nullptr)) {
+    TempFullVfs() : original(sqlite3_vfs_find(nullptr))
+    {
         base = original;
         copy = *original;
         copy.zName = "dtv-test-full";
@@ -109,7 +124,8 @@ struct TempFullVfs {
         fail = false;
         failures = 0;
     }
-    ~TempFullVfs() {
+    ~TempFullVfs()
+    {
         fail = false;
         sqlite3_vfs_register(original, 1);
         sqlite3_vfs_unregister(&copy);
@@ -122,14 +138,17 @@ struct Database {
     QTemporaryDir dir;
     std::string path;
     sqlite3 *db = nullptr;
-    Database() : path(dir.filePath("source.db").toUtf8().toStdString()) {
+    Database() : path(dir.filePath("source.db").toUtf8().toStdString())
+    {
         if(sqlite3_open(path.c_str(), &db) != SQLITE_OK)
             throw std::runtime_error("open failed");
     }
-    ~Database() {
+    ~Database()
+    {
         sqlite3_close(db);
     }
-    void exec(const std::string &sql) {
+    void exec(const std::string &sql)
+    {
         char *error = nullptr;
         if(sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &error) != SQLITE_OK) {
             std::string message(error ? error : "SQL failed");
@@ -137,7 +156,8 @@ struct Database {
             throw std::runtime_error(message);
         }
     }
-    std::vector<int64_t> ids(const std::string &sql) {
+    std::vector<int64_t> ids(const std::string &sql)
+    {
         sqlite3_stmt *stmt = nullptr;
         if(sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
             throw std::runtime_error(sqlite3_errmsg(db));
@@ -151,7 +171,8 @@ struct Database {
         return rows;
     }
 };
-std::vector<int64_t> pageIds(const dtv::core::PageResult &page) {
+std::vector<int64_t> pageIds(const dtv::core::PageResult &page)
+{
     std::vector<int64_t> ids;
     for(const auto &key : page.keys)
         ids.push_back(*key.rowid);
@@ -160,8 +181,9 @@ std::vector<int64_t> pageIds(const dtv::core::PageResult &page) {
 } // namespace
 class TestSqliteTableSource : public QObject {
     Q_OBJECT
-    private slots:
-    void nullablePrimaryKeyCannotRefetch() {
+private slots:
+    void nullablePrimaryKeyCannotRefetch()
+    {
         Database db;
         db.exec("CREATE TABLE t(rowid TEXT,_rowid_ TEXT,oid TEXT,k TEXT PRIMARY KEY,v TEXT); "
                 "INSERT INTO t(k,v) VALUES(NULL,'first'),(NULL,'second')");
@@ -174,7 +196,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(p.keys.at(1).primaryKey.empty());
         QVERIFY(!source.refetch(p.keys.at(1)).ok);
     }
-    void rowidlessVirtualTable() {
+    void rowidlessVirtualTable()
+    {
         VirtualRegistration registration;
         Database db;
         db.exec("CREATE VIRTUAL TABLE t USING dtv_test_rowidless");
@@ -191,7 +214,8 @@ class TestSqliteTableSource : public QObject {
         QCOMPARE(source.prev(next.token, 2).data->rows, p.data->rows);
         QVERIFY(!source.sort(0, true));
     }
-    void nonAsciiEmptyMetadata() {
+    void nonAsciiEmptyMetadata()
+    {
         Database db;
         const std::string name = "\xE4\xB8\xAD\xE6\x96\x87";
         db.exec("CREATE TABLE \"" + name + "\"(\"" + name +
@@ -208,7 +232,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(source.sort(1, true));
         QCOMPARE(source.rowCount().value(), int64_t(0));
     }
-    void invalidSources() {
+    void invalidSources()
+    {
         Database db;
         db.exec("CREATE TABLE t(v INTEGER)");
         dtv::parsers::SqliteTableSource source;
@@ -221,7 +246,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(!source.prev({}, 2).ok);
         QVERIFY(!source.last(2, -1).ok);
     }
-    void fullTempStorageKeepsOrder() {
+    void fullTempStorageKeepsOrder()
+    {
         TempFullVfs vfs;
         Database db;
         db.exec(
@@ -242,7 +268,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(source.sort(0, false));
         QCOMPARE(source.first(3).data->rows.front().front().substr(0, 8), std::string("00120000"));
     }
-    void textBoundaries_data() {
+    void textBoundaries_data()
+    {
         QTest::addColumn<QByteArray>("text");
         QTest::addColumn<QByteArray>("display");
         QTest::addColumn<bool>("clamped");
@@ -256,7 +283,8 @@ class TestSqliteTableSource : public QObject {
                                               << (QByteArray(4093, 'x') + cjk + ellipsis) << true;
         QTest::newRow("embedded-null") << QByteArray("a\0b", 3) << QByteArray("a\0b", 3) << false;
     }
-    void textBoundaries() {
+    void textBoundaries()
+    {
         QFETCH(QByteArray, text);
         QFETCH(QByteArray, display);
         QFETCH(bool, clamped);
@@ -278,7 +306,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(full.ok);
         QCOMPARE(full.values.front(), text.toStdString());
     }
-    void emptyAndOneRowSort() {
+    void emptyAndOneRowSort()
+    {
         Database db;
         db.exec("CREATE TABLE t(v INTEGER)");
         dtv::parsers::SqliteTableSource source;
@@ -295,7 +324,8 @@ class TestSqliteTableSource : public QObject {
         QCOMPARE(p.data->rows.front().front(), std::string("42"));
         QVERIFY(!p.hasMore);
     }
-    void rowidlessView() {
+    void rowidlessView()
+    {
         Database db;
         db.exec(
             "CREATE TABLE t(v); INSERT INTO t VALUES(1),(2),(3); CREATE VIEW v AS SELECT v FROM t");
@@ -313,7 +343,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(!source.canSort());
         QVERIFY(!source.canRefetch());
     }
-    void primaryKeyStorageClasses() {
+    void primaryKeyStorageClasses()
+    {
         Database db;
         db.exec("CREATE TABLE t(a BLOB,b REAL,c TEXT,PRIMARY KEY(a,b)) WITHOUT ROWID; INSERT INTO "
                 "t VALUES(x'',1.25,'one'),(x'0001',2.5,'two')");
@@ -327,7 +358,8 @@ class TestSqliteTableSource : public QObject {
             QCOMPARE(full.values, p.data->rows[i]);
         }
     }
-    void pageSizesAndPager() {
+    void pageSizesAndPager()
+    {
         using namespace dtv::core;
         QCOMPARE(normalizePageRows(), 500);
         QCOMPARE(normalizePageRows(std::string("bad")), 500);
@@ -363,12 +395,14 @@ class TestSqliteTableSource : public QObject {
         p.pageSize = 0;
         QCOMPARE(p.pages(), int64_t(0));
     }
-    void navigationBoundaries_data() {
+    void navigationBoundaries_data()
+    {
         QTest::addColumn<int>("count");
         for(int count : {0, 1, 2, 3, 4, 5, 12})
             QTest::newRow(qPrintable(QString::number(count))) << count;
     }
-    void navigationBoundaries() {
+    void navigationBoundaries()
+    {
         QFETCH(int, count);
         Database db;
         db.exec("CREATE TABLE t(v INTEGER)");
@@ -407,7 +441,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(!source.first(0).ok);
         QVERIFY(!source.first(3001).ok);
     }
-    void aliases_data() {
+    void aliases_data()
+    {
         QTest::addColumn<QString>("definition");
         QTest::addColumn<bool>("sortable");
         QTest::newRow("ordinary") << "v TEXT" << true;
@@ -415,7 +450,8 @@ class TestSqliteTableSource : public QObject {
         QTest::newRow("two") << "rowid TEXT, _ROWID_ TEXT, v TEXT" << true;
         QTest::newRow("all") << "rowid TEXT, _rowid_ TEXT, oid TEXT, v TEXT" << false;
     }
-    void aliases() {
+    void aliases()
+    {
         QFETCH(QString, definition);
         QFETCH(bool, sortable);
         Database db;
@@ -433,7 +469,8 @@ class TestSqliteTableSource : public QObject {
         if(!sortable)
             QVERIFY(!source.sort(0, true));
     }
-    void withoutRowidAndRefetch() {
+    void withoutRowidAndRefetch()
+    {
         Database db;
         db.exec("CREATE TABLE t(a TEXT,b INTEGER,value TEXT,PRIMARY KEY(b,a)) WITHOUT ROWID");
         db.exec("INSERT INTO t VALUES('a',1,'one'),('b',2,'two'),('c',3,'three')");
@@ -460,7 +497,8 @@ class TestSqliteTableSource : public QObject {
         db.exec("DELETE FROM t WHERE b=3");
         QVERIFY(!source.refetch(next.keys.front()).ok);
     }
-    void metadataAndCells() {
+    void metadataAndCells()
+    {
         Database db;
         db.exec("CREATE TABLE \"t\"\"x\"(i INTEGER,r REAL,d DOUBLE,b BOOL,u,\"quoted\"\"col\" "
                 "TEXT,g TEXT GENERATED ALWAYS AS (i || 'g'))");
@@ -503,7 +541,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(!p.clamped.front()[5]);
         QVERIFY(std::isnan(p.data->numeric_cache.by_column.at(0).front()));
     }
-    void numericCacheStorageAndReverse() {
+    void numericCacheStorageAndReverse()
+    {
         Database db;
         db.exec("CREATE TABLE t(v REAL); INSERT INTO t VALUES(1.5),(NULL),('bad'),(x'01'),(2.75)");
         dtv::parsers::SqliteTableSource source;
@@ -524,7 +563,8 @@ class TestSqliteTableSource : public QObject {
         QCOMPARE(prev.data->numeric_cache.by_column.at(0)[0], 1.5);
         QVERIFY(std::isnan(prev.data->numeric_cache.by_column.at(0)[2]));
     }
-    void sortingMatchesSqlite() {
+    void sortingMatchesSqlite()
+    {
         Database db;
         db.exec("CREATE TABLE t(v); INSERT INTO t "
                 "VALUES(NULL),(3),(1),(3),('a'),(x'0102'),(2.5),('10')");
@@ -561,7 +601,8 @@ class TestSqliteTableSource : public QObject {
             QCOMPARE(source.first(3).data->rows, before.data->rows);
         }
     }
-    void cancelledBuildKeepsOrder() {
+    void cancelledBuildKeepsOrder()
+    {
         Database db;
         db.exec("CREATE TABLE t(v INTEGER); WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 "
                 "FROM n WHERE x<30000) INSERT INTO t SELECT x FROM n");
@@ -584,7 +625,8 @@ class TestSqliteTableSource : public QObject {
         source.setCancelCheck({});
         QVERIFY(source.first(3).ok);
     }
-    void materializedAdapter() {
+    void materializedAdapter()
+    {
         auto data = std::make_shared<dtv::core::TableData>();
         data->rows = {{"a"}, {"b"}};
         dtv::core::MaterializedTableSource source(data);
@@ -601,7 +643,8 @@ class TestSqliteTableSource : public QObject {
         QVERIFY(!source.canRefetch());
         QVERIFY(!source.canSort());
     }
-    void navigation() {
+    void navigation()
+    {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const auto path = dir.filePath("test.db").toUtf8().toStdString();

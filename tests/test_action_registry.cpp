@@ -29,9 +29,10 @@ private slots:
         dtv::ui::ActionRegistry registry(&widget);
 
         bool triggered = false;
-        QAction *act = registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find, [&]() {
-            triggered = true;
-        });
+        QAction *act =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find, [&]() {
+                triggered = true;
+            });
 
         QVERIFY(act != nullptr);
         QCOMPARE(registry.shortcut("DataTableViewer.find"), QKeySequence(QKeySequence::Find));
@@ -60,8 +61,10 @@ private slots:
         QSettings settings(iniPath, QSettings::IniFormat);
         registry.loadShortcuts(settings);
 
-        QAction *findAct = registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
-        QAction *copyAct = registry.registerAction("DataTableViewer.copy", "Copy", QKeySequence::Copy);
+        QAction *findAct =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
+        QAction *copyAct =
+            registry.registerAction("DataTableViewer.copy", "Copy", QKeySequence::Copy);
 
         QCOMPARE(findAct->shortcut(), QKeySequence("Ctrl+Shift+F"));
         QCOMPARE(copyAct->shortcut(), QKeySequence("Alt+C"));
@@ -91,12 +94,18 @@ private slots:
         QSettings settings(iniPath, QSettings::IniFormat);
         registry.loadShortcuts(settings);
 
-        QAction *act1 = registry.registerAction("DataTableViewer.action1", "Action 1", QKeySequence("Ctrl+1"));
-        QAction *act2 = registry.registerAction("DataTableViewer.action2", "Action 2", QKeySequence("Ctrl+2"));
-        QAction *act3 = registry.registerAction("DataTableViewer.action3", "Action 3", QKeySequence("Ctrl+3"));
-        QAction *act4 = registry.registerAction("DataTableViewer.action4", "Action 4", QKeySequence("Ctrl+4"));
-        QAction *act5 = registry.registerAction("DataTableViewer.action5", "Action 5", QKeySequence("Ctrl+5"));
-        QAction *act6 = registry.registerAction("DataTableViewer.action6", "Action 6", QKeySequence("Ctrl+6"));
+        QAction *act1 =
+            registry.registerAction("DataTableViewer.action1", "Action 1", QKeySequence("Ctrl+1"));
+        QAction *act2 =
+            registry.registerAction("DataTableViewer.action2", "Action 2", QKeySequence("Ctrl+2"));
+        QAction *act3 =
+            registry.registerAction("DataTableViewer.action3", "Action 3", QKeySequence("Ctrl+3"));
+        QAction *act4 =
+            registry.registerAction("DataTableViewer.action4", "Action 4", QKeySequence("Ctrl+4"));
+        QAction *act5 =
+            registry.registerAction("DataTableViewer.action5", "Action 5", QKeySequence("Ctrl+5"));
+        QAction *act6 =
+            registry.registerAction("DataTableViewer.action6", "Action 6", QKeySequence("Ctrl+6"));
 
         // All must fall back to their compiled defaults
         QCOMPARE(act1->shortcut(), QKeySequence("Ctrl+1"));
@@ -119,8 +128,10 @@ private slots:
         dtv::ui::ActionRegistry registry(&widget);
 
         // Register two distinct actions with the same shortcut sequence
-        QAction *act1 = registry.registerAction("DataTableViewer.actionA", "Action A", QKeySequence("Ctrl+K"));
-        QAction *act2 = registry.registerAction("DataTableViewer.actionB", "Action B", QKeySequence("Ctrl+K"));
+        QAction *act1 =
+            registry.registerAction("DataTableViewer.actionA", "Action A", QKeySequence("Ctrl+K"));
+        QAction *act2 =
+            registry.registerAction("DataTableViewer.actionB", "Action B", QKeySequence("Ctrl+K"));
 
         QVERIFY(act1 != nullptr);
         QVERIFY(act2 != nullptr);
@@ -142,7 +153,8 @@ private slots:
     void testNativeTextConfiguredShortcutFallback()
     {
         QString iniPath = m_tempDir->filePath("test_native_fallback.ini");
-        const QString nativeSeq = QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
+        const QString nativeSeq =
+            QKeySequence(Qt::ControlModifier | Qt::Key_Home).toString(QKeySequence::NativeText);
         {
             QSettings settings(iniPath, QSettings::IniFormat);
             settings.beginGroup("Shortcuts");
@@ -160,7 +172,8 @@ private slots:
         QAction *act = registry.registerAction("DataTableViewer.pageFirst", "First page",
                                                QKeySequence(Qt::ControlModifier | Qt::Key_Home));
         QCOMPARE(act->shortcut(), QKeySequence(Qt::ControlModifier | Qt::Key_Home));
-        QCOMPARE(registry.shortcut("DataTableViewer.pageFirst"), QKeySequence(Qt::ControlModifier | Qt::Key_Home));
+        QCOMPARE(registry.shortcut("DataTableViewer.pageFirst"),
+                 QKeySequence(Qt::ControlModifier | Qt::Key_Home));
     }
 
     void testSaveDefaultsIfMissing()
@@ -217,7 +230,8 @@ private slots:
         QSettings settings(iniPath, QSettings::IniFormat);
         registry.loadShortcuts(settings);
 
-        QAction *findAct = registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
+        QAction *findAct =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
         QCOMPARE(findAct->shortcut(), QKeySequence(QKeySequence::Find));
 
         // Pre-existing keys remain untouched
@@ -233,7 +247,8 @@ private slots:
         dtv::ui::ActionRegistry registry(&widget);
 
         // Action text is Chinese / localized, while ID remains standard
-        QAction *act = registry.registerAction("DataTableViewer.find", QString::fromUtf8("查找"), QKeySequence::Find);
+        QAction *act = registry.registerAction("DataTableViewer.find", QString::fromUtf8("查找"),
+                                               QKeySequence::Find);
         QCOMPARE(act->text(), QString::fromUtf8("查找"));
         QCOMPARE(act->objectName(), QString("DataTableViewer.find"));
         QCOMPARE(registry.shortcut("DataTableViewer.find"), QKeySequence(QKeySequence::Find));
@@ -244,7 +259,8 @@ private slots:
         QPointer<QAction> actTracker;
         {
             dtv::ui::ActionRegistry registry(nullptr);
-            QAction *act = registry.registerAction("DataTableViewer.nullTest", "Null Parent", QKeySequence("Ctrl+N"));
+            QAction *act = registry.registerAction("DataTableViewer.nullTest", "Null Parent",
+                                                   QKeySequence("Ctrl+N"));
             QVERIFY(act != nullptr);
             actTracker = act;
             QVERIFY(!actTracker.isNull());
@@ -259,7 +275,8 @@ private slots:
         QPointer<QAction> actTracker;
         {
             dtv::ui::ActionRegistry registry(&widget);
-            QAction *act = registry.registerAction("DataTableViewer.parentTest", "Parent Test", QKeySequence("Ctrl+P"));
+            QAction *act = registry.registerAction("DataTableViewer.parentTest", "Parent Test",
+                                                   QKeySequence("Ctrl+P"));
             QVERIFY(act != nullptr);
             actTracker = act;
             QVERIFY(widget.actions().contains(act));
@@ -288,8 +305,10 @@ private slots:
         QSettings settings(iniPath, QSettings::IniFormat);
         registry.loadShortcuts(settings);
 
-        QAction *findAct = registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
-        QAction *copyAct = registry.registerAction("DataTableViewer.copy", "Copy", QKeySequence::Copy);
+        QAction *findAct =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
+        QAction *copyAct =
+            registry.registerAction("DataTableViewer.copy", "Copy", QKeySequence::Copy);
 
         QCOMPARE(findAct->shortcut(), QKeySequence("Ctrl+Shift+F"));
         QCOMPARE(copyAct->shortcut(), QKeySequence(QKeySequence::Copy));
@@ -304,14 +323,15 @@ private slots:
 
         // Restore write permissions so cleanup succeeds
         QFile::setPermissions(iniPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                                      QFileDevice::ReadUser | QFileDevice::WriteUser);
+                                           QFileDevice::ReadUser | QFileDevice::WriteUser);
     }
 
     void testWidgetDestroyedBeforeRegistryDoesNotCrash()
     {
         auto *widget = new QWidget();
         auto registry = std::make_unique<dtv::ui::ActionRegistry>(widget);
-        QAction *act = registry->registerAction("DataTableViewer.test", "Test", QKeySequence("Ctrl+T"));
+        QAction *act =
+            registry->registerAction("DataTableViewer.test", "Test", QKeySequence("Ctrl+T"));
         Q_UNUSED(act);
         delete widget;
         // Destroying registry after widget was deleted must be safe and not double-free

@@ -46,7 +46,8 @@ StatusBar::StatusBar(QWidget *parent) : QWidget(parent)
                        tr("Cancel").toHtmlEscaped() + "</a>");
     layout->addWidget(m_sorting);
     connect(m_sorting, &QLabel::linkActivated, this, [this](const QString &link) {
-        if(link == "cancel") emit cancelSortRequested();
+        if(link == "cancel")
+            emit cancelSortRequested();
     });
 
     m_info = new QLabel(this);
@@ -126,8 +127,8 @@ void StatusBar::setPagedMode(bool paged)
 }
 
 void StatusBar::setPagedLoadInfo(int64_t firstRow, int64_t lastRow, std::optional<int64_t> total,
-                                int colCount, qint64 fileBytes, qint64 elapsedMs,
-                                const QString &formatName, const QString &libraryCredit)
+                                 int colCount, qint64 fileBytes, qint64 elapsedMs,
+                                 const QString &formatName, const QString &libraryCredit)
 {
     m_pagedMode = true;
     m_firstRow = firstRow;
@@ -192,8 +193,7 @@ void StatusBar::setIndexingProgress(int64_t totalRows)
 {
     // Same ownership rule as updatePagedTotal: progress ticks must not evict a
     // cell value the user just selected, because nothing restores it later.
-    const bool showsOwnText = m_currentValueText.isEmpty() ||
-                              m_currentValueText == m_summaryText ||
+    const bool showsOwnText = m_currentValueText.isEmpty() || m_currentValueText == m_summaryText ||
                               m_currentValueText == m_indexingText;
 
     m_indexing = true;

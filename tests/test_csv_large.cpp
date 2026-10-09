@@ -34,7 +34,8 @@ private:
     {
 #ifdef _WIN32
         PROCESS_MEMORY_COUNTERS_EX pmc;
-        if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&pmc), sizeof(pmc))) {
+        if(GetProcessMemoryInfo(GetCurrentProcess(),
+                                reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&pmc), sizeof(pmc))) {
             return pmc.PrivateUsage;
         }
 #endif
@@ -57,23 +58,24 @@ private slots:
 
         // Generate 1,000,000 rows with varying data, including quoted multiline fields
         // Approximately 75-80 bytes per row -> ~75-80 MiB file (> 64 MiB limit)
-        for (int i = 1; i <= 1000000; ++i) {
-            if (i % 1000 == 0) {
+        for(int i = 1; i <= 1000000; ++i) {
+            if(i % 1000 == 0) {
                 // Quoted multiline field
                 out << i << ",\"Item_" << i << "\"," << (i * 1.5)
                     << ",\"Note line 1\nNote line 2 for item " << i << "\"\n";
-            } else if (i % 250 == 0) {
+            } else if(i % 250 == 0) {
                 // Quoted doubled quote
                 out << i << ",\"Item \"\"" << i << "\"\"\"," << (i * 1.5) << ",\"normal note\"\n";
             } else {
-                out << i << ",Item_" << i << "," << (i * 1.5) << ",some_filler_padding_note_long_extra_bytes_for_size\n";
+                out << i << ",Item_" << i << "," << (i * 1.5)
+                    << ",some_filler_padding_note_long_extra_bytes_for_size\n";
             }
         }
         file.close();
 
         m_fileSize = QFileInfo(m_largeCsvPath).size();
-        qInfo("Generated 1,000,000 rows CSV: %lld bytes (%.2f MiB)",
-              m_fileSize, m_fileSize / (1024.0 * 1024.0));
+        qInfo("Generated 1,000,000 rows CSV: %lld bytes (%.2f MiB)", m_fileSize,
+              m_fileSize / (1024.0 * 1024.0));
         QVERIFY(m_fileSize > 64 * 1024 * 1024); // > 64 MiB
     }
 
@@ -113,11 +115,11 @@ private slots:
         QElapsedTimer indexTimer;
         indexTimer.start();
         int slices = 0;
-        while (true) {
+        while(true) {
             auto progress = source.advanceIndex(256 * 1024);
             slices++;
             QVERIFY(progress.error.empty());
-            if (progress.isComplete) {
+            if(progress.isComplete) {
                 break;
             }
         }
@@ -132,7 +134,7 @@ private slots:
         size_t memBefore = getProcessPrivateBytes();
         qint64 totalTurnMs = 0;
 
-        for (int p = 2; p <= 50; ++p) {
+        for(int p = 2; p <= 50; ++p) {
             QElapsedTimer turnTimer;
             turnTimer.start();
             auto nextResult = source.next(token, 500);
@@ -143,7 +145,7 @@ private slots:
             QCOMPARE(nextResult.data->rows.size(), 500ull);
             QVERIFY(turnMs < 500); // Safety ceiling per page turn
 
-            if (p == 2) {
+            if(p == 2) {
                 // Verify multiline quoted field decoding across row on page 2 (row 1000)
                 QCOMPARE(nextResult.data->rows[499][0], std::string("1000"));
                 QCOMPARE(nextResult.data->rows[499][3],
@@ -164,10 +166,10 @@ private slots:
         QCOMPARE(prevResult.data->rows[0][0], std::string("24001"));
 
         size_t memAfter = getProcessPrivateBytes();
-        qInfo("Private bytes: before turns = %zu KB, after turns = %zu KB",
-              memBefore / 1024, memAfter / 1024);
+        qInfo("Private bytes: before turns = %zu KB, after turns = %zu KB", memBefore / 1024,
+              memAfter / 1024);
 
-        if (memBefore > 0 && memAfter > 0) {
+        if(memBefore > 0 && memAfter > 0) {
             // Verify memory plateau: page turns must not leak. The allowance
             // covers allocator noise; a real leak grows by megabytes per turn.
             QVERIFY(memAfter <= memBefore + 64 * 1024 * 1024);

@@ -16,9 +16,8 @@ namespace dtv::workers {
 class CountWorker : public QObject {
     Q_OBJECT
 public:
-    explicit CountWorker(
-        std::shared_ptr<std::atomic<uint64_t>> viewGen = nullptr,
-        QObject *parent = nullptr);
+    explicit CountWorker(std::shared_ptr<std::atomic<uint64_t>> viewGen = nullptr,
+                         QObject *parent = nullptr);
     ~CountWorker() override;
 
     std::shared_ptr<std::atomic<uint64_t>> viewGen() const;

@@ -17,7 +17,10 @@ public:
 
     void setTableData(std::shared_ptr<const core::TableData> data, bool loadAll = false,
                       int64_t rowOffset = 0);
-    int64_t rowOffset() const { return m_rowOffset; }
+    int64_t rowOffset() const
+    {
+        return m_rowOffset;
+    }
     int totalRowCount() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;

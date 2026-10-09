@@ -39,10 +39,10 @@ const char *kSourceChangedError = "Source file changed while it was being read";
 
 size_t utf8SafeLength(std::string_view s, size_t maxBytes)
 {
-    if (s.size() <= maxBytes)
+    if(s.size() <= maxBytes)
         return s.size();
     size_t len = maxBytes;
-    while (len > 0 && (static_cast<unsigned char>(s[len]) & 0xC0) == 0x80) {
+    while(len > 0 && (static_cast<unsigned char>(s[len]) & 0xC0) == 0x80) {
         len--;
     }
     return len;
@@ -56,13 +56,14 @@ std::vector<int> resolveTargetColumns(const std::vector<int> &requested, size_t 
 
     std::vector<int> targetCols;
     targetCols.reserve(colCount);
-    if (selectAll) {
-        for (size_t col = 0; col < colCount; ++col) {
+    if(selectAll) {
+        for(size_t col = 0; col < colCount; ++col) {
             targetCols.push_back(static_cast<int>(col));
         }
     } else {
-        for (int c : requested) {
-            if (c >= 0 && static_cast<size_t>(c) < colCount && !outSelected[static_cast<size_t>(c)]) {
+        for(int c : requested) {
+            if(c >= 0 && static_cast<size_t>(c) < colCount &&
+               !outSelected[static_cast<size_t>(c)]) {
                 outSelected[static_cast<size_t>(c)] = true;
                 targetCols.push_back(c);
             }
@@ -140,12 +141,12 @@ struct CsvFileSource::Impl {
     void close()
     {
 #ifdef _WIN32
-        if (fileHandle != INVALID_HANDLE_VALUE) {
+        if(fileHandle != INVALID_HANDLE_VALUE) {
             CloseHandle(fileHandle);
             fileHandle = INVALID_HANDLE_VALUE;
         }
 #else
-        if (fileHandle) {
+        if(fileHandle) {
             fclose(fileHandle);
             fileHandle = nullptr;
         }
@@ -155,35 +156,35 @@ struct CsvFileSource::Impl {
     bool readBytes(uint64_t offset, size_t size, std::string &outBytes, std::string &err)
     {
 #ifdef _WIN32
-        if (fileHandle == INVALID_HANDLE_VALUE) {
+        if(fileHandle == INVALID_HANDLE_VALUE) {
             err = "Source file is not open";
             return false;
         }
 #else
-        if (!fileHandle) {
+        if(!fileHandle) {
             err = "Source file is not open";
             return false;
         }
 #endif
-        if (size == 0) {
+        if(size == 0) {
             outBytes.clear();
             return true;
         }
 #ifdef _WIN32
-        if (size > 0xFFFFFFFFull) {
+        if(size > 0xFFFFFFFFull) {
             err = "Read request exceeds the Win32 read limit";
             return false;
         }
         outBytes.resize(size);
         LARGE_INTEGER li;
         li.QuadPart = static_cast<LONGLONG>(offset);
-        if (!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
+        if(!SetFilePointerEx(fileHandle, li, nullptr, FILE_BEGIN)) {
             err = "Failed to seek source file";
             return false;
         }
         DWORD bytesRead = 0;
-        if (!ReadFile(fileHandle, outBytes.data(), static_cast<DWORD>(size), &bytesRead, nullptr) ||
-            bytesRead != static_cast<DWORD>(size)) {
+        if(!ReadFile(fileHandle, outBytes.data(), static_cast<DWORD>(size), &bytesRead, nullptr) ||
+           bytesRead != static_cast<DWORD>(size)) {
             err = "Failed to read requested bytes from source file";
             return false;
         }
@@ -193,12 +194,12 @@ struct CsvFileSource::Impl {
         outBytes.resize(size);
         // fseeko/off_t: long is 32-bit on LP32/Win32-ILP32 targets, where a
         // plain fseek() cannot address a record past 2 GiB.
-        if (fseeko(fileHandle, static_cast<off_t>(offset), SEEK_SET) != 0) {
+        if(fseeko(fileHandle, static_cast<off_t>(offset), SEEK_SET) != 0) {
             err = "Failed to seek source file";
             return false;
         }
         size_t read = fread(outBytes.data(), 1, size, fileHandle);
-        if (read != size) {
+        if(read != size) {
             err = "Failed to read requested bytes from source file";
             return false;
         }
@@ -215,42 +216,44 @@ struct CsvFileSource::Impl {
     // bytes that no longer hold the record they were measured against.
     bool verifyUnchanged(std::string &err)
     {
-        if (sourceChanged) {
+        if(sourceChanged) {
             err = kSourceChangedError;
             return false;
         }
 #ifdef _WIN32
-        if (fileHandle == INVALID_HANDLE_VALUE) {
+        if(fileHandle == INVALID_HANDLE_VALUE) {
             err = "Source file is not open";
             return false;
         }
         BY_HANDLE_FILE_INFORMATION info;
-        if (!GetFileInformationByHandle(fileHandle, &info)) {
+        if(!GetFileInformationByHandle(fileHandle, &info)) {
             err = "Failed to stat source file";
             return false;
         }
         const uint64_t size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-        const uint64_t index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
-        const uint64_t writeTime = (static_cast<uint64_t>(info.ftLastWriteTime.dwHighDateTime) << 32) |
-                                   info.ftLastWriteTime.dwLowDateTime;
-        if (index != fileIndex || size != fileSize || writeTime != lastWriteTime) {
+        const uint64_t index =
+            (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        const uint64_t writeTime =
+            (static_cast<uint64_t>(info.ftLastWriteTime.dwHighDateTime) << 32) |
+            info.ftLastWriteTime.dwLowDateTime;
+        if(index != fileIndex || size != fileSize || writeTime != lastWriteTime) {
             sourceChanged = true;
             err = kSourceChangedError;
             return false;
         }
 #else
-        if (!fileHandle) {
+        if(!fileHandle) {
             err = "Source file is not open";
             return false;
         }
         struct stat info;
-        if (fstat(fileno(fileHandle), &info) != 0) {
+        if(fstat(fileno(fileHandle), &info) != 0) {
             err = "Failed to stat source file";
             return false;
         }
-        if (info.st_dev != fileIndex || info.st_ino != fileSerial ||
-            static_cast<uint64_t>(info.st_size) != fileSize ||
-            static_cast<uint64_t>(info.st_mtime) != lastWriteTime) {
+        if(info.st_dev != fileIndex || info.st_ino != fileSerial ||
+           static_cast<uint64_t>(info.st_size) != fileSize ||
+           static_cast<uint64_t>(info.st_mtime) != lastWriteTime) {
             sourceChanged = true;
             err = kSourceChangedError;
             return false;
@@ -285,7 +288,7 @@ std::optional<int64_t> CsvFileSource::rowCount() const
 
 void CsvFileSource::setKnownTotal(int64_t total)
 {
-    if (total >= 0) {
+    if(total >= 0) {
         m_impl->knownTotal = total;
     }
 }
@@ -305,53 +308,51 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
     char targetDelim = (delimiter != '\0') ? delimiter : m_initialDelimiter;
     m_impl->delimiter = targetDelim;
 
-    if (!m_impl->index.init()) {
+    if(!m_impl->index.init()) {
         m_error = "Failed to initialize index: " + m_impl->index.error();
         return false;
     }
 
 #ifdef _WIN32
-    int wideLen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(),
-                                      static_cast<int>(path.size()), nullptr, 0);
-    if (wideLen <= 0) {
+    int wideLen =
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), nullptr, 0);
+    if(wideLen <= 0) {
         m_error = "Invalid file path encoding";
         return false;
     }
     std::wstring wpath(static_cast<size_t>(wideLen), L'\0');
-    if (MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()),
-                            wpath.data(), wideLen) != wideLen) {
+    if(MultiByteToWideChar(CP_UTF8, 0, path.c_str(), static_cast<int>(path.size()), wpath.data(),
+                           wideLen) != wideLen) {
         m_error = "Invalid file path encoding";
         return false;
     }
-    m_impl->fileHandle = CreateFileW(
-        wpath.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
+    m_impl->fileHandle = CreateFileW(wpath.c_str(), GENERIC_READ,
+                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                     nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 
-    if (m_impl->fileHandle == INVALID_HANDLE_VALUE) {
+    if(m_impl->fileHandle == INVALID_HANDLE_VALUE) {
         m_error = "Failed to open file: " + std::to_string(GetLastError());
         return false;
     }
 
     BY_HANDLE_FILE_INFORMATION fileInfo;
-    if (GetFileInformationByHandle(m_impl->fileHandle, &fileInfo)) {
-        m_impl->fileSize = (static_cast<uint64_t>(fileInfo.nFileSizeHigh) << 32) | fileInfo.nFileSizeLow;
-        m_impl->fileIndex = (static_cast<uint64_t>(fileInfo.nFileIndexHigh) << 32) | fileInfo.nFileIndexLow;
-        m_impl->lastWriteTime = (static_cast<uint64_t>(fileInfo.ftLastWriteTime.dwHighDateTime) << 32) |
-                                fileInfo.ftLastWriteTime.dwLowDateTime;
+    if(GetFileInformationByHandle(m_impl->fileHandle, &fileInfo)) {
+        m_impl->fileSize =
+            (static_cast<uint64_t>(fileInfo.nFileSizeHigh) << 32) | fileInfo.nFileSizeLow;
+        m_impl->fileIndex =
+            (static_cast<uint64_t>(fileInfo.nFileIndexHigh) << 32) | fileInfo.nFileIndexLow;
+        m_impl->lastWriteTime =
+            (static_cast<uint64_t>(fileInfo.ftLastWriteTime.dwHighDateTime) << 32) |
+            fileInfo.ftLastWriteTime.dwLowDateTime;
     }
 #else
     m_impl->fileHandle = fopen(path.c_str(), "rb");
-    if (!m_impl->fileHandle) {
+    if(!m_impl->fileHandle) {
         m_error = "Failed to open file";
         return false;
     }
     struct stat statInfo;
-    if (fstat(fileno(m_impl->fileHandle), &statInfo) == 0) {
+    if(fstat(fileno(m_impl->fileHandle), &statInfo) == 0) {
         m_impl->fileSize = static_cast<uint64_t>(statInfo.st_size);
         m_impl->fileIndex = statInfo.st_dev;
         m_impl->fileSerial = statInfo.st_ino;
@@ -359,16 +360,16 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
     }
 #endif
 
-    if (m_impl->fileSize == 0) {
+    if(m_impl->fileSize == 0) {
         m_error = "Empty file";
         return false;
     }
 
     // 1. Delimiter resolution
-    if (m_impl->delimiter == '\0') {
+    if(m_impl->delimiter == '\0') {
         std::string sample;
         std::string err;
-        if (!m_impl->readBytes(0, std::min<size_t>(4096, m_impl->fileSize), sample, err)) {
+        if(!m_impl->readBytes(0, std::min<size_t>(4096, m_impl->fileSize), sample, err)) {
             m_error = err;
             return false;
         }
@@ -381,7 +382,7 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
 
     CsvRecordScanner::Callbacks cb;
     cb.onFieldFragment = [this](size_t colIndex, std::string_view fragment, bool isEnd) {
-        if (!m_impl->sampling || colIndex >= CsvRecordScanner::kMaxColumns) {
+        if(!m_impl->sampling || colIndex >= CsvRecordScanner::kMaxColumns) {
             return;
         }
         // Sample cells of *data* rows are capped at 64 decoded bytes; whatever
@@ -393,29 +394,29 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
         const size_t room = stored < trimmed ? trimmed - stored : 0;
         const size_t take = utf8SafeLength(fragment, room);
         m_impl->sampleCell.append(fragment.data(), take);
-        if (take < fragment.size()) {
+        if(take < fragment.size()) {
             m_impl->trimmedSampleCells[colIndex] = true;
         }
-        if (isEnd) {
+        if(isEnd) {
             m_impl->sampleRow.push_back(std::move(m_impl->sampleCell));
             m_impl->sampleCell.clear();
         }
     };
 
     cb.onRecord = [this](uint64_t recordOrdinal, uint64_t start, uint64_t end) {
-        if (recordOrdinal == 0) {
+        if(recordOrdinal == 0) {
             // Header record: first logical record provides the column names.
             m_impl->index.setHeaderByteSpan(start, end);
-            for (size_t i = 0; i < m_impl->sampleRow.size(); ++i) {
+            for(size_t i = 0; i < m_impl->sampleRow.size(); ++i) {
                 core::ColumnMeta meta;
                 meta.name = std::move(m_impl->sampleRow[i]);
                 // Second bound on the same rule: the header name is part of the
                 // frozen schema, so enforce the cap here too rather than rely
                 // on the scan callback alone.
-                if (meta.name.size() > kMaxHeaderNameBytes) {
+                if(meta.name.size() > kMaxHeaderNameBytes) {
                     meta.name.resize(utf8SafeLength(meta.name, kMaxHeaderNameBytes));
                 }
-                if (meta.name.empty())
+                if(meta.name.empty())
                     meta.name = "Col" + std::to_string(i);
                 m_impl->sampleData.columns.push_back(std::move(meta));
             }
@@ -424,20 +425,21 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
             m_impl->hasScannedHeader = true;
         } else {
             // Data record
-            if (!m_impl->index.appendSpan(start, end)) {
+            if(!m_impl->index.appendSpan(start, end)) {
                 m_impl->scanFailed = true;
                 m_error = "Failed to append index span: " + m_impl->index.error();
                 return;
             }
-            if (m_impl->sampling && m_impl->sampleData.rows.size() < kMaxSampleRows) {
+            if(m_impl->sampling && m_impl->sampleData.rows.size() < kMaxSampleRows) {
                 auto &row = m_impl->sampleRow;
                 // TypeInferrer indexes every row by column position, so a short
                 // row has to be padded here exactly like a displayed row is.
-                if (row.size() < m_impl->longSampleCells.size()) {
+                if(row.size() < m_impl->longSampleCells.size()) {
                     row.resize(m_impl->longSampleCells.size());
                 }
-                for (size_t col = 0; col < row.size() && col < m_impl->longSampleCells.size(); ++col) {
-                    if (row[col].size() > kMaxSampleCellBytes || m_impl->trimmedSampleCells[col]) {
+                for(size_t col = 0; col < row.size() && col < m_impl->longSampleCells.size();
+                    ++col) {
+                    if(row[col].size() > kMaxSampleCellBytes || m_impl->trimmedSampleCells[col]) {
                         m_impl->longSampleCells[col] = true;
                     }
                 }
@@ -453,26 +455,26 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
     constexpr size_t kChunkSize = 256 * 1024;
     constexpr size_t kMaxSampleScanBytes = 2 * 1024 * 1024; // 2 MiB bound
 
-    while (m_impl->scanOffset < m_impl->fileSize) {
+    while(m_impl->scanOffset < m_impl->fileSize) {
         size_t toRead = std::min<size_t>(kChunkSize, m_impl->fileSize - m_impl->scanOffset);
         std::string chunk;
         std::string readErr;
-        if (!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, readErr)) {
+        if(!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, readErr)) {
             m_error = readErr;
             return false;
         }
         bool isEof = (m_impl->scanOffset + toRead >= m_impl->fileSize);
-        if (!scanner->feed(chunk, m_impl->scanOffset, isEof, m_impl->cancelCheck)) {
+        if(!scanner->feed(chunk, m_impl->scanOffset, isEof, m_impl->cancelCheck)) {
             m_error = "Initial scan cancelled or failed";
             return false;
         }
         m_impl->scanOffset += toRead;
 
-        if (m_impl->scanFailed) {
+        if(m_impl->scanFailed) {
             return false;
         }
 
-        if (!m_impl->hasScannedHeader && m_impl->scanOffset >= kMaxHeaderScanBytes) {
+        if(!m_impl->hasScannedHeader && m_impl->scanOffset >= kMaxHeaderScanBytes) {
             // Nothing to sample against and no schema to freeze: the file is
             // either not delimited text or its first record is unbounded. Stop
             // here rather than reading the rest of it inside open().
@@ -480,20 +482,21 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
             return false;
         }
 
-        if (m_impl->hasScannedHeader && (m_impl->sampleData.rows.size() >= kMaxSampleRows || isEof || m_impl->scanOffset >= kMaxSampleScanBytes)) {
+        if(m_impl->hasScannedHeader && (m_impl->sampleData.rows.size() >= kMaxSampleRows || isEof ||
+                                        m_impl->scanOffset >= kMaxSampleScanBytes)) {
             break;
         }
     }
 
-    if (!m_impl->hasScannedHeader || m_impl->sampleData.columns.empty()) {
+    if(!m_impl->hasScannedHeader || m_impl->sampleData.columns.empty()) {
         m_error = "No data found";
         return false;
     }
 
     // 3. Type inference over sample, then freeze the schema
     core::TypeInferrer::infer(m_impl->sampleData);
-    for (size_t col = 0; col < m_impl->sampleData.columns.size(); ++col) {
-        if (m_impl->longSampleCells[col]) {
+    for(size_t col = 0; col < m_impl->sampleData.columns.size(); ++col) {
+        if(m_impl->longSampleCells[col]) {
             m_impl->sampleData.columns[col].type = core::ColumnMeta::Type::String;
         }
     }
@@ -504,16 +507,14 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
     m_impl->sampleRow.clear();
     m_impl->sampleCell.clear();
 
-    m_impl->index.setMetadata(
-        static_cast<uint32_t>(m_impl->columns.size()),
-        m_impl->delimiter,
-        scanner->hasBom());
+    m_impl->index.setMetadata(static_cast<uint32_t>(m_impl->columns.size()), m_impl->delimiter,
+                              scanner->hasBom());
 
     bool isEof = (m_impl->scanOffset >= m_impl->fileSize);
 
     // Small-file fast path: if EOF was reached in initial chunks
-    if (isEof) {
-        if (!m_impl->index.markComplete()) {
+    if(isEof) {
+        if(!m_impl->index.markComplete()) {
             m_error = "Failed to finalize index: " + m_impl->index.error();
             return false;
         }
@@ -527,19 +528,19 @@ bool CsvFileSource::open(const std::string &path, char delimiter)
 
 core::IndexReadiness CsvFileSource::readiness(int64_t firstOrdinal, int pageSize) const
 {
-    if (firstOrdinal < 0 || pageSize <= 0)
+    if(firstOrdinal < 0 || pageSize <= 0)
         return core::IndexReadiness::Failed;
-    if (m_impl->sourceChanged || m_impl->index.hasFailed() || m_impl->scanFailed)
+    if(m_impl->sourceChanged || m_impl->index.hasFailed() || m_impl->scanFailed)
         return core::IndexReadiness::Failed;
 
     // Unsigned arithmetic keeps an extreme ordinal from overflowing into a
     // "covered" result.
     const uint64_t first = static_cast<uint64_t>(firstOrdinal);
-    if (m_impl->index.dataRecordCount() >= first + static_cast<uint64_t>(pageSize))
+    if(m_impl->index.dataRecordCount() >= first + static_cast<uint64_t>(pageSize))
         return core::IndexReadiness::Ready;
 
-    if (m_impl->index.isComplete()) {
-        if (first >= m_impl->index.dataRecordCount())
+    if(m_impl->index.isComplete()) {
+        if(first >= m_impl->index.dataRecordCount())
             return core::IndexReadiness::End;
         return core::IndexReadiness::Ready; // Partial last page
     }
@@ -550,32 +551,32 @@ core::IndexReadiness CsvFileSource::readiness(int64_t firstOrdinal, int pageSize
 core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelCheck cancel)
 {
     core::IndexProgress progress;
-    if (m_impl->sourceChanged) {
+    if(m_impl->sourceChanged) {
         progress.error = kSourceChangedError;
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
-    if (m_impl->index.hasFailed()) {
+    if(m_impl->index.hasFailed()) {
         progress.error = "Index failed: " + m_impl->index.error();
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
-    if (m_impl->index.isComplete()) {
+    if(m_impl->index.isComplete()) {
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->fileSize;
         progress.isComplete = true;
         return progress;
     }
 
-    if (!m_impl->indexScanner) {
+    if(!m_impl->indexScanner) {
         progress.error = "Source is not open";
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
-    if (m_impl->scanFailed) {
+    if(m_impl->scanFailed) {
         progress.error = "Indexing was cancelled or failed";
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
@@ -583,7 +584,7 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     }
 
     std::string statsErr;
-    if (!m_impl->verifyUnchanged(statsErr)) {
+    if(!m_impl->verifyUnchanged(statsErr)) {
         progress.error = statsErr;
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
@@ -594,7 +595,7 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     size_t toRead = std::min<size_t>(budget, m_impl->fileSize - m_impl->scanOffset);
     std::string chunk;
     std::string err;
-    if (!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, err)) {
+    if(!m_impl->readBytes(m_impl->scanOffset, toRead, chunk, err)) {
         m_impl->scanFailed = true;
         progress.error = err;
         progress.indexedRows = m_impl->index.dataRecordCount();
@@ -603,7 +604,7 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     }
 
     bool isEof = (m_impl->scanOffset + toRead >= m_impl->fileSize);
-    if (!m_impl->indexScanner->feed(chunk, m_impl->scanOffset, isEof, cancel)) {
+    if(!m_impl->indexScanner->feed(chunk, m_impl->scanOffset, isEof, cancel)) {
         m_impl->scanFailed = true;
         progress.error = "Indexing cancelled";
         progress.indexedRows = m_impl->index.dataRecordCount();
@@ -612,17 +613,17 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
     }
     m_impl->scanOffset += toRead;
 
-    if (m_impl->scanFailed) {
+    if(m_impl->scanFailed) {
         progress.error = "Indexing failed: " + m_impl->index.error();
         progress.indexedRows = m_impl->index.dataRecordCount();
         progress.scannedBytes = m_impl->scanOffset;
         return progress;
     }
 
-    if (isEof) {
-        if (!m_impl->index.markComplete()) {
-            progress.error = m_impl->index.error().empty() ? "Failed to finalize index"
-                                                           : m_impl->index.error();
+    if(isEof) {
+        if(!m_impl->index.markComplete()) {
+            progress.error =
+                m_impl->index.error().empty() ? "Failed to finalize index" : m_impl->index.error();
             progress.indexedRows = m_impl->index.dataRecordCount();
             progress.scannedBytes = m_impl->scanOffset;
             progress.isComplete = false;
@@ -639,7 +640,7 @@ core::IndexProgress CsvFileSource::advanceIndex(size_t byteBudget, core::CancelC
 
 size_t CsvFileSource::computePerCellCap(int pageSize, size_t pageColumnCount) const
 {
-    if (pageSize <= 0 || pageColumnCount == 0)
+    if(pageSize <= 0 || pageColumnCount == 0)
         return 4096;
     size_t budgetPerCell = (32 * 1024 * 1024) / (static_cast<size_t>(pageSize) * pageColumnCount);
     return std::min<size_t>(4096, std::max<size_t>(16, budgetPerCell));
@@ -648,25 +649,25 @@ size_t CsvFileSource::computePerCellCap(int pageSize, size_t pageColumnCount) co
 core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
 {
     core::PageResult result;
-    if (startOrdinal < 0 || pageSize <= 0) {
+    if(startOrdinal < 0 || pageSize <= 0) {
         result.error = "Invalid page parameters";
         return result;
     }
 
     std::string statsErr;
-    if (!m_impl->verifyUnchanged(statsErr)) {
+    if(!m_impl->verifyUnchanged(statsErr)) {
         result.error = statsErr;
         return result;
     }
 
-    if (m_impl->cancelCheck && m_impl->cancelCheck()) {
+    if(m_impl->cancelCheck && m_impl->cancelCheck()) {
         result.error = core::kCancelledError;
         return result;
     }
 
     uint64_t totalIndexed = m_impl->index.dataRecordCount();
-    if (static_cast<uint64_t>(startOrdinal) >= totalIndexed) {
-        if (!m_impl->index.isComplete()) {
+    if(static_cast<uint64_t>(startOrdinal) >= totalIndexed) {
+        if(!m_impl->index.isComplete()) {
             // Indexing has not reached this range yet. Reporting success with
             // an empty page would present a temporary end as a final one.
             result.error = "Page range is not indexed yet";
@@ -684,10 +685,11 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
 
     size_t countToRead = std::min<size_t>(
         static_cast<size_t>(pageSize),
-        static_cast<size_t>(totalIndexed > static_cast<uint64_t>(startOrdinal) ? totalIndexed - startOrdinal : 0));
+        static_cast<size_t>(
+            totalIndexed > static_cast<uint64_t>(startOrdinal) ? totalIndexed - startOrdinal : 0));
 
     auto spans = m_impl->index.readSpans(startOrdinal, countToRead);
-    if (spans.size() != countToRead) {
+    if(spans.size() != countToRead) {
         result.error = "Failed to read index spans";
         return result;
     }
@@ -704,9 +706,9 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
     // Resolve the cache vectors once: every entry of by_column is stable after
     // this loop, so the row loop below needs no further hash lookups.
     std::vector<std::vector<double> *> numericColumns(colCount, nullptr);
-    for (size_t col = 0; col < colCount; ++col) {
-        if (m_impl->columns[col].type == core::ColumnMeta::Type::Integer ||
-            m_impl->columns[col].type == core::ColumnMeta::Type::Float) {
+    for(size_t col = 0; col < colCount; ++col) {
+        if(m_impl->columns[col].type == core::ColumnMeta::Type::Integer ||
+           m_impl->columns[col].type == core::ColumnMeta::Type::Float) {
             auto &cache = data->numeric_cache.by_column[static_cast<int>(col)];
             cache.reserve(spans.size());
             numericColumns[col] = &cache;
@@ -720,19 +722,19 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
 
     CsvRecordScanner::Callbacks cb;
     cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool isEnd) {
-        if (colIndex < colCount) {
-            if (cell.size() < cellCap) {
+        if(colIndex < colCount) {
+            if(cell.size() < cellCap) {
                 size_t allowed = cellCap - cell.size();
                 size_t safeLen = utf8SafeLength(fragment, allowed);
                 cell.append(fragment.data(), safeLen);
-                if (safeLen < fragment.size()) {
+                if(safeLen < fragment.size()) {
                     cellWasClamped = true;
                 }
-            } else if (!fragment.empty()) {
+            } else if(!fragment.empty()) {
                 cellWasClamped = true;
             }
 
-            if (isEnd) {
+            if(isEnd) {
                 rowValues.push_back(std::move(cell));
                 rowClamped.push_back(cellWasClamped);
                 cell.clear();
@@ -744,8 +746,8 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
     CsvRecordScanner rowScanner(m_impl->delimiter, std::move(cb));
 
     std::string rawRecord; // Reused across rows so its capacity survives.
-    for (size_t rowIdx = 0; rowIdx < spans.size(); ++rowIdx) {
-        if (m_impl->cancelCheck && m_impl->cancelCheck()) {
+    for(size_t rowIdx = 0; rowIdx < spans.size(); ++rowIdx) {
+        if(m_impl->cancelCheck && m_impl->cancelCheck()) {
             result.error = core::kCancelledError;
             return result;
         }
@@ -753,7 +755,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
         const auto &span = spans[rowIdx];
         size_t recordBytes = static_cast<size_t>(span.end - span.start);
         std::string err;
-        if (!m_impl->readBytes(span.start, recordBytes, rawRecord, err)) {
+        if(!m_impl->readBytes(span.start, recordBytes, rawRecord, err)) {
             result.error = err;
             return result;
         }
@@ -763,7 +765,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
         cell.clear();
         cellWasClamped = false;
 
-        if (!rowScanner.feed(rawRecord, span.start, true, m_impl->cancelCheck)) {
+        if(!rowScanner.feed(rawRecord, span.start, true, m_impl->cancelCheck)) {
             result.ok = false;
             result.error = core::kCancelledError;
             return result;
@@ -771,7 +773,7 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
         rowScanner.reset();
 
         // Pad short rows
-        while (rowValues.size() < colCount) {
+        while(rowValues.size() < colCount) {
             rowValues.push_back("");
             rowClamped.push_back(false);
         }
@@ -779,25 +781,25 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
         // A record with more fields than the header would leave the surplus
         // cells attached, making TableData::rows ragged. The frozen schema is
         // the authority, so drop them.
-        if (rowValues.size() > colCount) {
+        if(rowValues.size() > colCount) {
             rowValues.resize(colCount);
             rowClamped.resize(colCount);
         }
 
         // Numeric cache population
-        for (size_t col = 0; col < colCount; ++col) {
+        for(size_t col = 0; col < colCount; ++col) {
             std::vector<double> *cache = numericColumns[col];
-            if (!cache)
+            if(!cache)
                 continue;
             double numeric = std::numeric_limits<double>::quiet_NaN();
-            if (!rowClamped[col]) {
+            if(!rowClamped[col]) {
                 std::string_view text = rowValues[col];
-                if (!text.empty() && text.front() == '+') {
+                if(!text.empty() && text.front() == '+') {
                     text.remove_prefix(1);
                 }
                 double parsed;
                 const auto conv = std::from_chars(text.data(), text.data() + text.size(), parsed);
-                if (conv.ec == std::errc{} && conv.ptr == text.data() + text.size()) {
+                if(conv.ec == std::errc{} && conv.ptr == text.data() + text.size()) {
                     numeric = parsed;
                 }
             }
@@ -813,15 +815,16 @@ core::PageResult CsvFileSource::readPage(int64_t startOrdinal, int pageSize)
 
     result.token.offset = startOrdinal;
     result.token.valid = !data->rows.empty();
-    if (!spans.empty()) {
+    if(!spans.empty()) {
         result.token.firstKey = spans.front().start;
         result.token.lastKey = spans.back().end;
     }
 
-    result.hasMore = (m_impl->index.dataRecordCount() > static_cast<uint64_t>(startOrdinal + spans.size())) ||
-                     !m_impl->index.isComplete();
+    result.hasMore =
+        (m_impl->index.dataRecordCount() > static_cast<uint64_t>(startOrdinal + spans.size())) ||
+        !m_impl->index.isComplete();
 
-    if (m_impl->knownTotal) {
+    if(m_impl->knownTotal) {
         data->total_rows = static_cast<size_t>(*m_impl->knownTotal);
     }
 
@@ -846,16 +849,16 @@ core::PageResult CsvFileSource::first(int pageSize)
 
 core::PageResult CsvFileSource::next(const core::PageToken &token, int pageSize)
 {
-    if (!token.valid)
+    if(!token.valid)
         return tokenFailure();
-    if (token.offset > (std::numeric_limits<int64_t>::max)() - pageSize)
+    if(token.offset > (std::numeric_limits<int64_t>::max)() - pageSize)
         return tokenFailure();
     return readPage(token.offset + pageSize, pageSize);
 }
 
 core::PageResult CsvFileSource::prev(const core::PageToken &token, int pageSize)
 {
-    if (!token.valid)
+    if(!token.valid)
         return tokenFailure();
     int64_t target = std::max<int64_t>(0, token.offset - pageSize);
     return readPage(target, pageSize);
@@ -863,12 +866,12 @@ core::PageResult CsvFileSource::prev(const core::PageToken &token, int pageSize)
 
 core::PageResult CsvFileSource::last(int pageSize, std::optional<int64_t> knownTotal)
 {
-    if (!knownTotal.has_value() || *knownTotal < 0 || pageSize <= 0) {
+    if(!knownTotal.has_value() || *knownTotal < 0 || pageSize <= 0) {
         core::PageResult res;
         res.error = "Known total and valid page size required for last";
         return res;
     }
-    if (*knownTotal == 0)
+    if(*knownTotal == 0)
         return first(pageSize);
 
     int64_t total = *knownTotal;
@@ -881,24 +884,24 @@ core::PageResult CsvFileSource::last(int pageSize, std::optional<int64_t> knownT
 core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
 {
     core::RefetchResult result;
-    if (!key.csvOrdinal.has_value()) {
+    if(!key.csvOrdinal.has_value()) {
         result.error = "Missing CSV ordinal";
         return result;
     }
 
     std::string statsErr;
-    if (!m_impl->verifyUnchanged(statsErr)) {
+    if(!m_impl->verifyUnchanged(statsErr)) {
         result.error = statsErr;
         return result;
     }
 
-    if (m_impl->cancelCheck && m_impl->cancelCheck()) {
+    if(m_impl->cancelCheck && m_impl->cancelCheck()) {
         result.error = core::kCancelledError;
         return result;
     }
 
     auto span = m_impl->index.readSpan(*key.csvOrdinal);
-    if (!span) {
+    if(!span) {
         result.error = "Record ordinal out of range";
         return result;
     }
@@ -906,7 +909,7 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
     size_t recordBytes = static_cast<size_t>(span->end - span->start);
     std::string rawRecord;
     std::string err;
-    if (!m_impl->readBytes(span->start, recordBytes, rawRecord, err)) {
+    if(!m_impl->readBytes(span->start, recordBytes, rawRecord, err)) {
         result.error = err;
         return result;
     }
@@ -921,11 +924,11 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
 
     CsvRecordScanner::Callbacks cb;
     cb.onFieldFragment = [&](size_t colIndex, std::string_view fragment, bool /*isEnd*/) {
-        if (budgetExceeded)
+        if(budgetExceeded)
             return;
-        if (colIndex < colCount && selected[colIndex]) {
+        if(colIndex < colCount && selected[colIndex]) {
             totalBytes += fragment.size();
-            if (totalBytes > core::kMaxCopyBudgetBytes) {
+            if(totalBytes > core::kMaxCopyBudgetBytes) {
                 budgetExceeded = true;
                 return;
             }
@@ -937,19 +940,19 @@ core::RefetchResult CsvFileSource::refetch(const core::RefetchKey &key)
     auto cancelRefetch = [&]() -> bool {
         return budgetExceeded || (m_impl->cancelCheck && m_impl->cancelCheck());
     };
-    if (!scanner.feed(rawRecord, span->start, true, cancelRefetch)) {
+    if(!scanner.feed(rawRecord, span->start, true, cancelRefetch)) {
         result.ok = false;
         result.error = budgetExceeded ? core::kCopyBudgetExceededError : core::kCancelledError;
         return result;
     }
 
-    if (budgetExceeded) {
+    if(budgetExceeded) {
         result.ok = false;
         result.error = core::kCopyBudgetExceededError;
         return result;
     }
 
-    for (int col : targetCols) {
+    for(int col : targetCols) {
         result.columns.push_back(col);
         result.values.push_back(std::move(allValues[static_cast<size_t>(col)]));
     }

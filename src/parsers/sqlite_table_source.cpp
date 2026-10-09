@@ -11,21 +11,25 @@
 namespace dtv::parsers {
 namespace {
 struct StatementDeleter {
-    void operator()(sqlite3_stmt *stmt) const {
+    void operator()(sqlite3_stmt *stmt) const
+    {
         sqlite3_finalize(stmt);
     }
 };
 using Statement = std::unique_ptr<sqlite3_stmt, StatementDeleter>;
-std::string quoted(const std::string &name) {
+std::string quoted(const std::string &name)
+{
     return "\"" + escapeSqlIdentifier(name) + "\"";
 }
-std::string asciiLower(std::string value) {
+std::string asciiLower(std::string value)
+{
     for(char &c : value)
         if(c >= 'A' && c <= 'Z')
             c += 'a' - 'A';
     return value;
 }
-core::ColumnMeta::Type columnType(const char *value) {
+core::ColumnMeta::Type columnType(const char *value)
+{
     const auto mapped = mapSqliteDeclType(value);
     if(mapped == "integer")
         return core::ColumnMeta::Type::Integer;
@@ -35,7 +39,8 @@ core::ColumnMeta::Type columnType(const char *value) {
         return core::ColumnMeta::Type::Boolean;
     return core::ColumnMeta::Type::String;
 }
-std::string cellText(sqlite3_stmt *stmt, int column, bool clamp, bool &clamped) {
+std::string cellText(sqlite3_stmt *stmt, int column, bool clamp, bool &clamped)
+{
     clamped = false;
     if(sqlite3_column_type(stmt, column) == SQLITE_BLOB)
         return "[BLOB " + std::to_string(sqlite3_column_bytes(stmt, column)) + " bytes]";
@@ -55,7 +60,8 @@ std::string cellText(sqlite3_stmt *stmt, int column, bool clamp, bool &clamped) 
         result += "\xE2\x80\xA6";
     return result;
 }
-core::SqlValue sqlValue(sqlite3_stmt *stmt, int col) {
+core::SqlValue sqlValue(sqlite3_stmt *stmt, int col)
+{
     switch(sqlite3_column_type(stmt, col)) {
     case SQLITE_NULL:
         return std::monostate{};
@@ -74,7 +80,8 @@ core::SqlValue sqlValue(sqlite3_stmt *stmt, int col) {
     }
     }
 }
-int bindValue(sqlite3_stmt *stmt, int parameter, const core::SqlValue &value) {
+int bindValue(sqlite3_stmt *stmt, int parameter, const core::SqlValue &value)
+{
     if(std::holds_alternative<std::monostate>(value))
         return sqlite3_bind_null(stmt, parameter);
     if(auto v = std::get_if<int64_t>(&value))
@@ -89,15 +96,18 @@ int bindValue(sqlite3_stmt *stmt, int parameter, const core::SqlValue &value) {
         return sqlite3_bind_zeroblob(stmt, parameter, 0);
     return sqlite3_bind_blob64(stmt, parameter, v.data(), v.size(), SQLITE_TRANSIENT);
 }
-core::PageResult failure(const std::string &error) {
+core::PageResult failure(const std::string &error)
+{
     core::PageResult result;
     result.error = error;
     return result;
 }
-core::PageResult cancelledResult() {
+core::PageResult cancelledResult()
+{
     return failure(core::kCancelledError);
 }
-bool validSize(int size) {
+bool validSize(int size)
+{
     return size > 0 && size <= 3000;
 }
 } // namespace
@@ -115,15 +125,18 @@ struct SqliteTableSource::Impl {
     core::CancelCheck cancel;
 
     explicit Impl(std::shared_ptr<InterruptHandle> h, core::CancelCheck c = {})
-        : interruptHandle(std::move(h)), cancel(std::move(c)) {}
+        : interruptHandle(std::move(h)), cancel(std::move(c))
+    {}
 
-    ~Impl() {
+    ~Impl()
+    {
         if(interruptHandle)
             interruptHandle->clear();
         if(db)
             sqlite3_close_v2(db);
     }
-    static int progress(void *p) {
+    static int progress(void *p)
+    {
         auto &self = *static_cast<Impl *>(p);
         try {
             return self.cancel && self.cancel() ? 1 : 0;
@@ -131,13 +144,16 @@ struct SqliteTableSource::Impl {
             return 1;
         }
     }
-    bool cancelled() const {
+    bool cancelled() const
+    {
         return cancel && cancel();
     }
-    void installProgress() {
+    void installProgress()
+    {
         sqlite3_progress_handler(db, 1000, progress, this);
     }
-    Statement prepare(const std::string &sql) {
+    Statement prepare(const std::string &sql)
+    {
         sqlite3_stmt *raw = nullptr;
         const int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &raw, nullptr);
         Statement stmt(raw);
@@ -148,7 +164,8 @@ struct SqliteTableSource::Impl {
         return stmt;
     }
     core::PageResult fetch(int size, int direction, const core::PageToken &anchor,
-                           int64_t lastSize = 0) {
+                           int64_t lastSize = 0)
+    {
         if(!db || !validSize(size))
             return failure("Invalid source or page size");
         if(cancelled())
@@ -223,7 +240,8 @@ struct SqliteTableSource::Impl {
             sqlite3_bind_int64(stmt.get(), 1, direction == 1 ? anchor.lastKey : anchor.firstKey);
         return read(stmt.get(), size, reverse && !rowid.empty(), offset, false);
     }
-    core::PageResult read(sqlite3_stmt *stmt, int size, bool reverse, int64_t offset, bool sorted) {
+    core::PageResult read(sqlite3_stmt *stmt, int size, bool reverse, int64_t offset, bool sorted)
+    {
         core::PageResult result;
         auto data = std::make_shared<core::TableData>();
         data->columns = columns;
@@ -305,10 +323,11 @@ struct SqliteTableSource::Impl {
 
 SqliteTableSource::SqliteTableSource(std::shared_ptr<InterruptHandle> handle)
     : m_interruptHandle(handle ? std::move(handle) : std::make_shared<InterruptHandle>()),
-      m_impl(std::make_unique<Impl>(m_interruptHandle)) {
-}
+      m_impl(std::make_unique<Impl>(m_interruptHandle))
+{}
 SqliteTableSource::~SqliteTableSource() = default;
-bool SqliteTableSource::open(const std::string &path, const std::string &table) {
+bool SqliteTableSource::open(const std::string &path, const std::string &table)
+{
     auto previousCancel = m_impl ? m_impl->cancel : core::CancelCheck{};
     m_impl = std::make_unique<Impl>(m_interruptHandle, previousCancel);
     auto &s = *m_impl;
@@ -326,7 +345,8 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
     struct CleanupOnFailure {
         Impl &impl;
         bool &success;
-        ~CleanupOnFailure() {
+        ~CleanupOnFailure()
+        {
             if(!success && impl.db) {
                 if(impl.interruptHandle)
                     impl.interruptHandle->clear();
@@ -427,29 +447,37 @@ bool SqliteTableSource::open(const std::string &path, const std::string &table) 
     success = true;
     return true;
 }
-const std::string &SqliteTableSource::error() const {
+const std::string &SqliteTableSource::error() const
+{
     return m_impl->error;
 }
-const std::vector<core::ColumnMeta> &SqliteTableSource::columns() const {
+const std::vector<core::ColumnMeta> &SqliteTableSource::columns() const
+{
     return m_impl->columns;
 }
-std::optional<int64_t> SqliteTableSource::rowCount() const {
+std::optional<int64_t> SqliteTableSource::rowCount() const
+{
     return m_impl->total;
 }
-void SqliteTableSource::setKnownTotal(int64_t total) {
+void SqliteTableSource::setKnownTotal(int64_t total)
+{
     if(total >= 0)
         m_impl->total = total;
 }
-core::PageResult SqliteTableSource::first(int size) {
+core::PageResult SqliteTableSource::first(int size)
+{
     return m_impl->fetch(size, 0, {});
 }
-core::PageResult SqliteTableSource::next(const core::PageToken &token, int size) {
+core::PageResult SqliteTableSource::next(const core::PageToken &token, int size)
+{
     return token.valid ? m_impl->fetch(size, 1, token) : failure("Invalid page token");
 }
-core::PageResult SqliteTableSource::prev(const core::PageToken &token, int size) {
+core::PageResult SqliteTableSource::prev(const core::PageToken &token, int size)
+{
     return token.valid ? m_impl->fetch(size, -1, token) : failure("Invalid page token");
 }
-core::PageResult SqliteTableSource::last(int size, std::optional<int64_t> total) {
+core::PageResult SqliteTableSource::last(int size, std::optional<int64_t> total)
+{
     if(!total || *total < 0 || !validSize(size))
         return failure("Last page requires a known total and valid size");
     setKnownTotal(*total);
@@ -460,24 +488,30 @@ core::PageResult SqliteTableSource::last(int size, std::optional<int64_t> total)
     result.hasMore = false;
     return result;
 }
-bool SqliteTableSource::canSort() const {
+bool SqliteTableSource::canSort() const
+{
     return !m_impl->rowid.empty();
 }
-bool SqliteTableSource::canRefetch() const {
+bool SqliteTableSource::canRefetch() const
+{
     return !m_impl->rowid.empty() || !m_impl->primaryKey.empty();
 }
-void SqliteTableSource::setCancelCheck(core::CancelCheck cancel) {
+void SqliteTableSource::setCancelCheck(core::CancelCheck cancel)
+{
     if(m_impl)
         m_impl->cancel = std::move(cancel);
 }
-std::shared_ptr<InterruptHandle> SqliteTableSource::interruptHandle() const {
+std::shared_ptr<InterruptHandle> SqliteTableSource::interruptHandle() const
+{
     return m_interruptHandle;
 }
-void SqliteTableSource::interrupt() {
+void SqliteTableSource::interrupt()
+{
     if(m_interruptHandle)
         m_interruptHandle->interrupt();
 }
-bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck cancel) {
+bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck cancel)
+{
     auto &s = *m_impl;
     if(!canSort() || column >= s.columns.size()) {
         s.error = "Sorting unavailable or invalid column";
@@ -532,7 +566,8 @@ bool SqliteTableSource::sort(size_t column, bool ascending, core::CancelCheck ca
     restore();
     return true;
 }
-core::RefetchResult SqliteTableSource::refetch(const core::RefetchKey &key) {
+core::RefetchResult SqliteTableSource::refetch(const core::RefetchKey &key)
+{
     auto &s = *m_impl;
     core::RefetchResult result;
     // Split the two conditions: the worker recognizes cancellation by the

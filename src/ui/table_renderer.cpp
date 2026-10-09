@@ -131,8 +131,7 @@ void TableRenderer::setData(std::shared_ptr<const core::TableData> data)
 
 void TableRenderer::setPageData(std::shared_ptr<const core::TableData> data,
                                 std::vector<core::RefetchKey> keys,
-                                std::vector<std::vector<bool>> clamped,
-                                int64_t rowOffset)
+                                std::vector<std::vector<bool>> clamped, int64_t rowOffset)
 {
     m_pagedMode = true;
     m_pageKeys = std::move(keys);
@@ -321,8 +320,8 @@ void TableRenderer::performCopy(bool isMarkdown)
     if(rowsToRefetch.empty()) {
         m_pendingCopy.reset();
         // No cells need refetching: write directly to clipboard.
-        const QString text = isMarkdown ? buildMarkdownText(pending.cells, {})
-                                        : buildPlainText(pending.cells, {});
+        const QString text =
+            isMarkdown ? buildMarkdownText(pending.cells, {}) : buildPlainText(pending.cells, {});
         if(!withinCopyBudget(text)) {
             emit copyRefetchIncomplete(-1);
             return;
@@ -336,8 +335,9 @@ void TableRenderer::performCopy(bool isMarkdown)
     emit refetchRowsRequested(m_currentCopyRequestId, isMarkdown, rowsToRefetch);
 }
 
-QString TableRenderer::rawCellText(const PendingCopyCell &cell,
-                                   const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
+QString TableRenderer::rawCellText(
+    const PendingCopyCell &cell,
+    const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     if(cell.clamped) {
         auto rowIt = refetched.find(cell.modelRow);
@@ -351,8 +351,9 @@ QString TableRenderer::rawCellText(const PendingCopyCell &cell,
     return cell.displayedText;
 }
 
-QString TableRenderer::buildPlainText(const std::vector<PendingCopyCell> &cells,
-                                      const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
+QString TableRenderer::buildPlainText(
+    const std::vector<PendingCopyCell> &cells,
+    const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     QString text;
     int lastRow = -1;
@@ -366,8 +367,9 @@ QString TableRenderer::buildPlainText(const std::vector<PendingCopyCell> &cells,
     return text;
 }
 
-QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cells,
-                                         const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
+QString TableRenderer::buildMarkdownText(
+    const std::vector<PendingCopyCell> &cells,
+    const std::unordered_map<int, std::unordered_map<int, std::string>> &refetched) const
 {
     std::set<int> rowSet, colSet;
     for(const auto &c : cells) {
@@ -391,7 +393,9 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
         // above, so the lookup is expected to hit. Stay defensive anyway: a
         // caller that hand-builds a cell vector must not turn a missing header
         // into a dereference past the end.
-        auto found = std::find_if(cells.begin(), cells.end(), [col](const auto &c) { return c.visCol == col; });
+        auto found = std::find_if(cells.begin(), cells.end(), [col](const auto &c) {
+            return c.visCol == col;
+        });
         QString h = found == cells.end() ? QString() : singleLineDisplayText(found->headerText);
         h.replace("|", "\\|");
         text += h + "|";
@@ -408,14 +412,13 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
     for(int row : rows) {
         text += "|";
         for(int col : cols) {
-            while(cell < cells.size() &&
-                  (cells[cell].visRow < row ||
-                   (cells[cell].visRow == row && cells[cell].visCol < col))) {
+            while(cell < cells.size() && (cells[cell].visRow < row || (cells[cell].visRow == row &&
+                                                                       cells[cell].visCol < col))) {
                 ++cell;
             }
 
-            const bool present = cell < cells.size() && cells[cell].visRow == row &&
-                                 cells[cell].visCol == col;
+            const bool present =
+                cell < cells.size() && cells[cell].visRow == row && cells[cell].visCol == col;
             if(present) {
                 QString val = rawCellText(cells[cell], refetched);
                 val.replace("|", "\\|");
@@ -427,7 +430,8 @@ QString TableRenderer::buildMarkdownText(const std::vector<PendingCopyCell> &cel
         text += "\n";
     }
     if(truncated) {
-        text += QString("\n\n*(Truncated: Only first %1 selected rows were copied as Markdown)*").arg(kMaxMdRows);
+        text += QString("\n\n*(Truncated: Only first %1 selected rows were copied as Markdown)*")
+                    .arg(kMaxMdRows);
     }
     return text;
 }
@@ -442,10 +446,11 @@ void TableRenderer::copyAsMarkdown()
     performCopy(true);
 }
 
-void TableRenderer::onRefetchRowsCompleted(uint64_t copyRequestId,
-                                          const std::vector<std::pair<int, core::RefetchResult>> &results)
+void TableRenderer::onRefetchRowsCompleted(
+    uint64_t copyRequestId, const std::vector<std::pair<int, core::RefetchResult>> &results)
 {
-    if(copyRequestId != m_currentCopyRequestId || !m_pendingCopy || m_pendingCopy->copyRequestId != copyRequestId) {
+    if(copyRequestId != m_currentCopyRequestId || !m_pendingCopy ||
+       m_pendingCopy->copyRequestId != copyRequestId) {
         return;
     }
 
@@ -468,7 +473,8 @@ void TableRenderer::onRefetchRowsCompleted(uint64_t copyRequestId,
         if(res.second.ok) {
             auto &rowMap = refetchedValues[res.first];
             if(!res.second.columns.empty()) {
-                for(size_t i = 0; i < res.second.columns.size() && i < res.second.values.size(); ++i) {
+                for(size_t i = 0; i < res.second.columns.size() && i < res.second.values.size();
+                    ++i) {
                     rowMap[res.second.columns[i]] = res.second.values[i];
                 }
             } else {
@@ -525,11 +531,11 @@ void TableRenderer::setCopyAction(QAction *action)
     m_copyAction = action;
     if(m_copyAction && m_view && m_view->selectionModel()) {
         m_copyAction->setEnabled(m_view->selectionModel()->hasSelection());
-        connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged,
-                m_copyAction, [this] {
+        connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, m_copyAction,
+                [this] {
                     if(m_copyAction && m_view) {
-                        m_copyAction->setEnabled(m_view->selectionModel()
-                                                 && m_view->selectionModel()->hasSelection());
+                        m_copyAction->setEnabled(m_view->selectionModel() &&
+                                                 m_view->selectionModel()->hasSelection());
                     }
                 });
         // A model reset clears the selection silently (QItemSelectionModel::reset

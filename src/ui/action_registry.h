@@ -40,8 +40,7 @@ public:
     // Convenience registration overload
     QAction *registerAction(const QString &id, const QString &text,
                             const QKeySequence &defaultShortcut,
-                            std::function<void()> onTriggered = nullptr,
-                            bool checkable = false);
+                            std::function<void()> onTriggered = nullptr, bool checkable = false);
 
     // Accessors
     QAction *action(const QString &id) const;

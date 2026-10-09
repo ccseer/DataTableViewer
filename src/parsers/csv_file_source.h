@@ -19,7 +19,10 @@ public:
     CsvFileSource &operator=(const CsvFileSource &) = delete;
 
     bool open(const std::string &path, char delimiter = '\0');
-    const std::string &error() const { return m_error; }
+    const std::string &error() const
+    {
+        return m_error;
+    }
 
     // Full path (UTF-8) of the backing temporary record index, for
     // diagnostics and tests. Empty before a successful open().
@@ -34,13 +37,25 @@ public:
     core::PageResult prev(const core::PageToken &token, int pageSize) override;
     core::PageResult last(int pageSize, std::optional<int64_t> knownTotal) override;
 
-    bool canSort() const override { return false; }
-    bool canRefetch() const override { return true; }
-    bool sort(size_t, bool, core::CancelCheck = {}) override { return false; }
+    bool canSort() const override
+    {
+        return false;
+    }
+    bool canRefetch() const override
+    {
+        return true;
+    }
+    bool sort(size_t, bool, core::CancelCheck = {}) override
+    {
+        return false;
+    }
 
     core::RefetchResult refetch(const core::RefetchKey &key) override;
 
-    bool isIndexable() const override { return true; }
+    bool isIndexable() const override
+    {
+        return true;
+    }
     core::IndexReadiness readiness(int64_t firstOrdinal, int pageSize) const override;
     core::IndexProgress advanceIndex(size_t byteBudget, core::CancelCheck cancel = {}) override;
     void setCancelCheck(core::CancelCheck cancel) override;

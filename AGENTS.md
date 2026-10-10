@@ -208,7 +208,7 @@ The manifest schema should match DataTreeViewer:
 ```json
 {
   "name": "DataTableViewer",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "dll",
   "roles": ["viewer"],
   "entry": "datatableviewer.dll",

@@ -24,6 +24,7 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     layout->addWidget(m_btnPrev);
 
     m_labelPage = new QLabel(this);
+    m_labelPage->setObjectName("pageLabel");
     m_labelPage->setAlignment(Qt::AlignCenter);
     layout->addWidget(m_labelPage);
 
@@ -99,6 +100,14 @@ void PageBar::updateTheme(bool dark, qreal dpr)
                       .arg(qRound(4 * m_dpr))
                       .arg(text)
                       .arg(qRound(14 * m_dpr)));
+
+    if(m_labelPage) {
+        m_labelPage->setObjectName("pageLabel");
+        m_labelPage->setStyleSheet(
+            QString("color: %1; font-size: %2px; font-weight: 500; background: transparent;")
+                .arg(text)
+                .arg(qRound(14 * m_dpr)));
+    }
 
     updateIcons();
 }

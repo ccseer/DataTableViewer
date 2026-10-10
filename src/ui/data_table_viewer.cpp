@@ -27,6 +27,8 @@
 #include <QEvent>
 #include <QHeaderView>
 #include <QCoreApplication>
+#include <QGuiApplication>
+#include <QStyleHints>
 #include <algorithm>
 
 #define qprintt qDebug() << "[DataTableViewer]"
@@ -376,7 +378,16 @@ void DataTableViewer::updateDPR(qreal r)
 
 void DataTableViewer::updateTheme(int theme)
 {
-    m_isDarkMode = (theme == 1);
+    bool isDark = (theme == 1 || theme == 3);
+    if(!isDark && theme != 0) {
+        if(QGuiApplication::styleHints() &&
+           QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark) {
+            isDark = true;
+        } else if(QGuiApplication::palette().color(QPalette::Window).lightness() < 128) {
+            isDark = true;
+        }
+    }
+    m_isDarkMode = isDark;
     if(m_search)
         m_search->updateTheme(m_isDarkMode);
     if(m_status)

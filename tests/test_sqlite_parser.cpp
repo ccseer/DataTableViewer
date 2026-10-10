@@ -94,6 +94,68 @@ private slots:
         QCOMPARE(result.table_names[0], std::string("items"));
     }
 
+    void testTableNotesComeFromDdlComments()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const std::string path = dir.filePath("notes.sqlite").toUtf8().toStdString();
+        {
+            sqlite3 *db = nullptr;
+            QCOMPARE(sqlite3_open(path.c_str(), &db), SQLITE_OK);
+            QCOMPARE(sqlite3_exec(db,
+                                  "CREATE TABLE /* stock ledger */ blocked(id INTEGER);"
+                                  "CREATE TABLE lined -- monthly rollup\n(id INTEGER);"
+                                  "CREATE TABLE quoted(id INTEGER, note TEXT DEFAULT '-- not a "
+                                  "comment');",
+                                  nullptr, nullptr, nullptr),
+                     SQLITE_OK);
+            sqlite3_close(db);
+        }
+
+        dtv::parsers::SqliteParser parser;
+        dtv::core::ParseInput input;
+        input.file_path = path;
+
+        auto result = parser.parse(input);
+        QVERIFY(result.ok);
+        QCOMPARE(result.table_names.size(), 3ull);
+        QCOMPARE(result.table_notes.size(), 3ull);
+
+        // sqlite_master keeps the DDL as written, in name order. SQLite strips
+        // block comments before storing it, so only a "--" comment survives.
+        QCOMPARE(result.table_names[0], std::string("blocked"));
+        QVERIFY(result.table_notes[0].empty());
+        QCOMPARE(result.table_names[1], std::string("lined"));
+        QCOMPARE(result.table_notes[1], std::string("monthly rollup"));
+        // The only "--" in this table is inside a default value.
+        QCOMPARE(result.table_names[2], std::string("quoted"));
+        QVERIFY(result.table_notes[2].empty());
+    }
+
+    void testDatabaseWithoutUserTablesFails()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const std::string path = dir.filePath("no_tables.sqlite").toUtf8().toStdString();
+        {
+            sqlite3 *db = nullptr;
+            QCOMPARE(sqlite3_open(path.c_str(), &db), SQLITE_OK);
+            sqlite3_close(db);
+        }
+
+        dtv::parsers::SqliteParser parser;
+        dtv::core::ParseInput input;
+        input.file_path = path;
+
+        auto result = parser.parse(input);
+        // Reporting success here leaves the viewer with neither rows nor a
+        // table picker, and therefore with no state to signal.
+        QVERIFY(!result.ok);
+        QVERIFY(!result.error.empty());
+        QVERIFY(result.table_names.empty());
+        QVERIFY(result.data == nullptr);
+    }
+
     void testInvalidFile()
     {
         dtv::parsers::SqliteParser parser;

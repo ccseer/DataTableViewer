@@ -21,6 +21,10 @@
 namespace dtv {
 namespace ui {
 namespace {
+// Group that held every saved column layout before layouts moved to the state
+// key itself. Read-only now: nothing writes it any more.
+constexpr auto kLegacyHeaderGroup = "TablePlugin/";
+
 // The copy budget is counted in source (UTF-8) bytes while the payload lives in
 // memory as UTF-16, so the length is computed directly instead of materializing
 // a second copy of a payload that may already be at the limit. A surrogate pair
@@ -219,8 +223,18 @@ void TableRenderer::saveHeaderState(QSettings &settings) const
     if(m_stateKey.isEmpty())
         return;
 
-    settings.beginGroup("TablePlugin/" + m_stateKey);
+    settings.beginGroup(m_stateKey);
     settings.setValue("HeaderState", m_view->horizontalHeader()->saveState());
+    settings.endGroup();
+}
+
+void TableRenderer::restoreHeaderStateFrom(QSettings &settings, const QString &group)
+{
+    settings.beginGroup(group);
+    if(settings.contains("HeaderState")) {
+        m_view->horizontalHeader()->restoreState(settings.value("HeaderState").toByteArray());
+        m_restoredHeaderState = true;
+    }
     settings.endGroup();
 }
 
@@ -229,11 +243,14 @@ void TableRenderer::restoreHeaderState(QSettings &settings)
     if(m_stateKey.isEmpty())
         return;
 
-    settings.beginGroup("TablePlugin/" + m_stateKey);
-    if(settings.contains("HeaderState")) {
-        m_view->horizontalHeader()->restoreState(settings.value("HeaderState").toByteArray());
+    m_restoredHeaderState = false;
+    restoreHeaderStateFrom(settings, m_stateKey);
+    // Column layouts written before the dedicated group was dropped live under
+    // the legacy prefix. Reading them keeps a user's saved widths instead of
+    // discarding them on upgrade; the next save writes the current location.
+    if(!m_restoredHeaderState) {
+        restoreHeaderStateFrom(settings, kLegacyHeaderGroup + m_stateKey);
     }
-    settings.endGroup();
 }
 
 void TableRenderer::setFilter(const QString &text, int columnScope)

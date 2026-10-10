@@ -497,6 +497,71 @@ private slots:
         db.exec("DELETE FROM t WHERE b=3");
         QVERIFY(!source.refetch(next.keys.front()).ok);
     }
+    void withoutRowidOffsetPagingFollowsPrimaryKey()
+    {
+        // A WITHOUT ROWID table has no rowid, so paging falls back to
+        // LIMIT/OFFSET. The covering index below lets SQLite answer from value
+        // order, which is the reverse of the primary key: the source has to
+        // impose its own order or pages arrive in plan order.
+        Database db;
+        db.exec("CREATE TABLE t(a TEXT,b INTEGER,value TEXT,PRIMARY KEY(b,a)) WITHOUT ROWID");
+        db.exec("CREATE INDEX cover ON t(value,b,a)");
+        for(int i = 1; i <= 12; ++i) {
+            db.exec("INSERT INTO t VALUES('k" + std::to_string(i) + "'," + std::to_string(i) +
+                    ",'v" + std::to_string(100 - i) + "')");
+        }
+        dtv::parsers::SqliteTableSource source;
+        QVERIFY2(source.open(db.path, "t"), source.error().c_str());
+        QVERIFY(!source.canSort());
+
+        auto expect = [](const dtv::core::PageResult &page, int first) {
+            int expected = first;
+            for(const auto &row : page.data->rows)
+                QCOMPARE(row.at(1), std::to_string(expected++));
+        };
+        std::vector<std::string> visited;
+        auto collect = [&visited](const dtv::core::PageResult &page) {
+            for(const auto &row : page.data->rows)
+                visited.push_back(row.at(1));
+        };
+
+        const int size = 3;
+        auto first = source.first(size);
+        QVERIFY2(first.ok, first.error.c_str());
+        QCOMPARE(first.data->rows.size(), size_t(size));
+        expect(first, 1);
+        collect(first);
+        QVERIFY(first.hasMore);
+
+        auto second = source.next(first.token, size);
+        QVERIFY2(second.ok, second.error.c_str());
+        expect(second, 4);
+        collect(second);
+
+        auto third = source.next(second.token, size);
+        QVERIFY2(third.ok, third.error.c_str());
+        expect(third, 7);
+        collect(third);
+
+        auto fourth = source.next(third.token, size);
+        QVERIFY2(fourth.ok, fourth.error.c_str());
+        expect(fourth, 10);
+        collect(fourth);
+        QVERIFY(!fourth.hasMore);
+
+        std::vector<std::string> all;
+        for(int i = 1; i <= 12; ++i)
+            all.push_back(std::to_string(i));
+        QCOMPARE(visited, all);
+
+        auto back = source.prev(third.token, size);
+        QVERIFY2(back.ok, back.error.c_str());
+        expect(back, 4);
+
+        auto tail = source.last(size, 12);
+        QVERIFY2(tail.ok, tail.error.c_str());
+        expect(tail, 10);
+    }
     void metadataAndCells()
     {
         Database db;

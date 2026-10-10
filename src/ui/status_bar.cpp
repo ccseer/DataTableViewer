@@ -50,12 +50,6 @@ StatusBar::StatusBar(QWidget *parent) : QWidget(parent)
             emit cancelSortRequested();
     });
 
-    m_info = new QLabel(this);
-    m_info->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_info->setCursor(Qt::ArrowCursor);
-    m_info->setToolTip("DataTableViewer");
-    layout->addWidget(m_info, 0);
-
     m_progress = new QProgressBar(this);
     m_progress->setRange(0, 0);
     m_progress->hide();
@@ -68,27 +62,9 @@ void StatusBar::setLoadInfo(int rowCount, int colCount, qint64 fileBytes, qint64
                             const QString &formatName, const QString &libraryCredit, bool truncated,
                             size_t totalRows)
 {
+    Q_UNUSED(fileBytes);
+    Q_UNUSED(libraryCredit);
     m_pagedMode = false;
-    QStringList lines;
-    lines << QString("Format: %1").arg(formatName);
-    if(truncated) {
-        if(totalRows > 0) {
-            lines << QString("Rows: Showing %L1 of %L2").arg(rowCount).arg(totalRows);
-        } else {
-            lines << QString("Rows: %L1+").arg(rowCount);
-        }
-    } else {
-        lines << QString("Rows: %L1").arg(rowCount);
-    }
-    lines << QString("Columns: %1").arg(colCount);
-    if(fileBytes > 0) {
-        lines << QString("File size: %1").arg(fileSizeStr(fileBytes));
-    }
-    lines << QString("Load time: %1 ms").arg(elapsedMs);
-    if(!libraryCredit.isEmpty())
-        lines << QString("Library: %1").arg(libraryCredit);
-
-    m_tooltipLines = lines.join("\n");
     m_hasLoadInfo = true;
 
     // Build a summary for restoration when no item is selected
@@ -113,8 +89,6 @@ void StatusBar::setLoadInfo(int rowCount, int colCount, qint64 fileBytes, qint64
                             .arg(elapsedMs);
     }
 
-    m_info->setToolTip(m_tooltipLines);
-    repaintInfoIcon();
     m_progress->hide();
 
     setValueText(m_summaryText);
@@ -146,8 +120,6 @@ void StatusBar::setPagedLoadInfo(int64_t firstRow, int64_t lastRow, std::optiona
         setWarning(m_indexingError);
     }
 
-    m_info->setToolTip(m_tooltipLines);
-    repaintInfoIcon();
     if(!m_indexing) {
         m_progress->hide();
     }
@@ -178,8 +150,6 @@ void StatusBar::updatePagedTotal(int64_t total)
 
     QString oldSummary = m_summaryText;
     rebuildPagedTexts();
-
-    m_info->setToolTip(m_tooltipLines);
 
     // Replace only text this bar produced itself. A live cell selection owns
     // the value line, so finishing the index must not overwrite it.
@@ -222,19 +192,6 @@ void StatusBar::rebuildPagedTexts()
 {
     QString totalStr = m_pagedTotal.has_value() ? QString("%L1").arg(*m_pagedTotal) : "...";
 
-    QStringList lines;
-    lines << QString("Format: %1").arg(m_formatName);
-    lines << QString("Rows: %L1-%L2 of %3").arg(m_firstRow).arg(m_lastRow).arg(totalStr);
-    lines << QString("Columns: %1").arg(m_colCount);
-    if(m_fileBytes > 0) {
-        lines << QString("File size: %1").arg(fileSizeStr(m_fileBytes));
-    }
-    lines << QString("Load time: %1 ms").arg(m_elapsedMs);
-    if(!m_libraryCredit.isEmpty()) {
-        lines << QString("Library: %1").arg(m_libraryCredit);
-    }
-    m_tooltipLines = lines.join("\n");
-
     m_summaryText = QString("%1  ·  rows %L2-%L3 of %4  ·  %5 columns")
                         .arg(m_formatName)
                         .arg(m_firstRow)
@@ -242,7 +199,7 @@ void StatusBar::rebuildPagedTexts()
                         .arg(totalStr)
                         .arg(m_colCount);
 
-    // The summary and tooltip were just rebuilt without the warning, so the
+    // The summary was just rebuilt without the warning, so the
     // next setWarning() has to be allowed to fold it back in.
     m_appliedWarning.clear();
 }
@@ -255,13 +212,11 @@ void StatusBar::setWarning(const QString &warning)
     // The text this warning is folded into is rebuilt from scratch by
     // rebuildPagedTexts(), so a new warning replaces the previous one instead
     // of stacking on top of it. Reapplying the stored indexing error on every
-    // page turn must not grow the summary or the tooltip.
+    // page turn must not grow the summary.
     const QString oldSummary = m_summaryText;
     m_appliedWarning = warning;
     QString warnText = QString("  (Warning: %1)").arg(warning);
     m_summaryText += warnText;
-    m_tooltipLines += "\n" + warnText;
-    m_info->setToolTip(m_tooltipLines);
 
     // If we are currently showing the summary (no selection), update it immediately
     if(m_currentValueText.isEmpty() || m_currentValueText == oldSummary) {
@@ -322,7 +277,6 @@ void StatusBar::resetLoadInfo()
     m_indexingText.clear();
     m_indexingError.clear();
     m_summaryText.clear();
-    m_tooltipLines.clear();
     m_appliedWarning.clear();
     m_hasLoadInfo = false;
     m_filterActive = false;
@@ -339,9 +293,6 @@ void StatusBar::resetLoadInfo()
 void StatusBar::showLoading()
 {
     resetLoadInfo();
-    m_info->setPixmap(QPixmap());
-    m_info->setText("Loading...");
-    m_info->setToolTip("DataTableViewer");
     setValueText({});
     m_progress->show();
 }
@@ -353,9 +304,7 @@ void StatusBar::hideLoading()
 
 void StatusBar::restoreInfo()
 {
-    m_info->setText({});
     if(m_hasLoadInfo) {
-        repaintInfoIcon();
         if(!m_indexingError.isEmpty()) {
             setValueText(tr("Indexing error: %1").arg(m_indexingError));
         } else if(m_indexing && !m_indexingText.isEmpty()) {
@@ -365,8 +314,6 @@ void StatusBar::restoreInfo()
         }
     } else {
         m_filterActive = false;
-        m_info->setPixmap(QPixmap());
-        m_info->setToolTip("DataTableViewer");
         setValueText({});
     }
     if(!m_indexing) {
@@ -379,14 +326,10 @@ void StatusBar::updateTheme(bool dark, qreal dpr)
     Q_UNUSED(dark);
     m_dpr = dpr;
     setFixedHeight(qRound(26 * m_dpr));
-    const int infoBox = qRound(24 * m_dpr);
-    m_info->setFixedSize(infoBox, infoBox);
     m_progress->setMaximumWidth(qRound(80 * m_dpr));
     m_progress->setMaximumHeight(qRound(12 * m_dpr));
     if(auto *lay = qobject_cast<QHBoxLayout *>(layout()))
         lay->setContentsMargins(qRound(12 * m_dpr), 0, qRound(12 * m_dpr), 0);
-    if(m_hasLoadInfo)
-        repaintInfoIcon();
 }
 
 void StatusBar::setSorting(bool sorting)
@@ -398,26 +341,8 @@ void StatusBar::clear()
 {
     setSorting(false);
     resetLoadInfo();
-    m_info->setPixmap(QPixmap());
-    m_info->clear();
-    m_info->setToolTip("DataTableViewer");
     setValueText({});
     m_progress->hide();
-}
-
-void StatusBar::repaintInfoIcon()
-{
-    if(!m_hasLoadInfo)
-        return;
-
-    using namespace dtv::ui;
-
-    QColor iconColor(Colors::Accent);
-
-    int iconSize = qRound(20 * m_dpr);
-    QIcon icon = dtv::ui::createMultiStateIcon(g_svg_info, iconColor, iconSize);
-    m_info->setPixmap(icon.pixmap(iconSize, iconSize));
-    m_info->setToolTip(m_tooltipLines);
 }
 
 } // namespace ui

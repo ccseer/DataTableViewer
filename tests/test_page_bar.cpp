@@ -133,15 +133,15 @@ private slots:
         PageBar bar;
         bar.updateTheme(false, 1.0);
         QCOMPARE(bar.height(), 28);
-        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 1.0))));
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(14 * 1.0))));
 
         bar.updateTheme(true, 1.5);
         QCOMPARE(bar.height(), qRound(28 * 1.5));
-        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 1.5))));
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(14 * 1.5))));
 
         bar.updateTheme(false, 2.0);
         QCOMPARE(bar.height(), qRound(28 * 2.0));
-        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(12 * 2.0))));
+        QVERIFY(bar.styleSheet().contains(QString("font-size: %1px;").arg(qRound(14 * 2.0))));
     }
 };
 

@@ -15,6 +15,7 @@
 #include "ui/action_registry.h"
 #include <QStackedLayout>
 #include <QPushButton>
+#include <QComboBox>
 #include <QHeaderView>
 #include <QTableView>
 #include <QKeyEvent>
@@ -50,6 +51,7 @@ private slots:
     void testRowIndexColumn();
     void testStatusBarRowIndexMetrics();
     void testPagingShortcutsAndTooltips();
+    void testCancelPendingClearsForeignPagerState();
     void testContentSizingAndPropertyBounds();
     void testRepeatedIndexingErrorDoesNotAccumulate();
     void testViewerDestructionJoinsActiveWorkers();
@@ -77,7 +79,7 @@ bool TestViewerPaging::createDatabase(const QString &filePath, int rowCount)
     }
     sqlite3_exec(db, "PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;", nullptr, nullptr,
                  nullptr);
-    sqlite3_exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, val REAL);", nullptr,
+    sqlite3_exec(db, "CREATE TABLE items /* Inventory items table */ (id INTEGER PRIMARY KEY, name TEXT, val REAL);", nullptr,
                  nullptr, nullptr);
     std::string sql = "WITH RECURSIVE cnt(x) AS ("
                       "  SELECT 1 UNION ALL SELECT x+1 FROM cnt WHERE x < " +
@@ -166,18 +168,17 @@ void TestViewerPaging::test1MRowDatabaseOpensAndPages()
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, optsPriv, opts);
 
-    // Initial load displays TablePicker with table list
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-    QVERIFY(viewer.m_pageBar->isHidden());
+    // Initial load displays table directly with ComboBox
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
+    QCOMPARE(viewer.m_tableCombo->currentText(), QString("items"));
 
-    // Select "items" table
+    // The first page has to arrive before COUNT finishes; waiting for the
+    // million-row total first would hide a regression that defers the page.
     QElapsedTimer timer;
     timer.start();
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-
-    // First page appears promptly (< 3000ms) before COUNT completes
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 1000);
-    qint64 firstPageElapsed = timer.elapsed();
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 3000);
+    QVERIFY(!viewer.m_pagerState.total.has_value());
+    const qint64 firstPageElapsed = timer.elapsed();
     qInfo("First page loaded in %lld ms", firstPageElapsed);
     QVERIFY(firstPageElapsed < 3000);
 
@@ -214,10 +215,8 @@ void TestViewerPaging::testSmallTableHidesPager()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_smallDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
+    QCOMPARE(viewer.m_tableCombo->currentText(), QString("items"));
 
     // Wait for count to land
     QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
@@ -247,8 +246,8 @@ void TestViewerPaging::testCsvPaged()
 
         // Small CSV hides the page bar
         QVERIFY(viewer.m_pageBar->isHidden());
-        // Back button must be hidden for CSV
-        QVERIFY(viewer.m_backBtn->isHidden());
+        // The table selector belongs to SQLite files only
+        QVERIFY(viewer.m_tableCombo->isHidden());
         // The filter box is disabled while loading; the first page must re-enable it
         QVERIFY(viewer.m_search->isEnabled());
 
@@ -368,7 +367,7 @@ void TestViewerPaging::testCsvPaged()
         QVERIFY(viewer.m_isPaged);
         QVERIFY(viewer.m_isCsv);
         QVERIFY(viewer.m_pageBar->isHidden());
-        QVERIFY(viewer.m_backBtn->isHidden());
+        QVERIFY(viewer.m_tableCombo->isHidden());
         QVERIFY(viewer.m_status->text().contains("TSV"));
 
         // TSV header click must also explain that sorting is not supported
@@ -456,17 +455,13 @@ void TestViewerPaging::testCsvPaged()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
 
-        viewer.loadSelectedTable(m_smallDbPath, "items");
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
-        QVERIFY(!viewer.m_backBtn->isHidden());
-
-        // Now load a CSV: back button must be hidden immediately
+        // Now load a CSV: table combo must be hidden immediately
         setupViewer(viewer, QString(FIXTURES_DIR) + "/valid_basic.csv", optsPriv, opts);
-        QVERIFY(viewer.m_backBtn->isHidden());
+        QVERIFY(viewer.m_tableCombo->isHidden());
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
-        QVERIFY(viewer.m_backBtn->isHidden());
+        QVERIFY(viewer.m_tableCombo->isHidden());
     }
 
     // 7. Status bar indexing error preservation:
@@ -638,22 +633,27 @@ void TestViewerPaging::testBackButtonTeardown()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
 
-    viewer.loadSelectedTable(m_smallDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    // Verify Table ComboBox is visible and enabled even for single table (Requirement 2)
+    QVERIFY(viewer.m_tableCombo != nullptr);
+    QVERIFY(!viewer.m_tableCombo->isHidden());
+    // The combo lives in the search bar, which the load disables until the
+    // first page arrives. Enabled is the end state, not an instant one.
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_tableCombo->isEnabled(), 5000);
+    QCOMPARE(viewer.m_tableCombo->currentText(), QString("items"));
 
-    // Click back button
-    viewer.m_backBtn->click();
+    // Verify Tooltip contains the table note extracted from SQL DDL (Requirement 3)
+    QVERIFY(viewer.m_tableCombo->toolTip().contains("Inventory items table"));
 
-    // Must return to picker, pager hidden, paged state reset
-    QCOMPARE(viewer.m_stack->currentWidget(), viewer.m_picker);
-    QVERIFY(!viewer.m_isPaged);
-    QVERIFY(viewer.m_pageBar->isHidden());
-    // The previous table's row/column metrics must not linger in the status bar
-    QVERIFY(viewer.m_status->text().isEmpty());
-    QVERIFY(viewer.m_sourceWorker == nullptr);
-    QVERIFY(viewer.m_countWorker == nullptr);
+    // Verify ComboBox width adapts to item width and does not exceed the 36-char ceiling
+    int textWidth = viewer.m_tableCombo->fontMetrics().horizontalAdvance("items");
+    QVERIFY(viewer.m_tableCombo->width() >= textWidth);
+    int max36Width = viewer.m_tableCombo->fontMetrics().horizontalAdvance(QString(36, '0')) + qRound(28 * 1.0);
+    QVERIFY(viewer.m_tableCombo->width() <= max36Width);
+
+    // Verify paged state is initialized
+    QVERIFY(viewer.m_isPaged);
 }
 
 void TestViewerPaging::testHeaderStatePreservedAcrossPageTurns()
@@ -662,10 +662,7 @@ void TestViewerPaging::testHeaderStatePreservedAcrossPageTurns()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
 
     // Wait for first page
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
@@ -691,12 +688,8 @@ void TestViewerPaging::testCountRequestedOnlyOnceOnPageTurns()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-    QVERIFY(viewer.m_countWorker != nullptr);
-
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
+    QTRY_VERIFY(viewer.m_countWorker != nullptr);
 
     // Count is requested once and completes
     QTRY_COMPARE_WITH_TIMEOUT(viewer.m_countCompletedCount, 1, 5000);
@@ -720,10 +713,7 @@ void TestViewerPaging::testPageNavigationFailureRollsBackPageNumber()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
 
     // Initial page 1 loaded
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
@@ -780,11 +770,8 @@ void TestViewerPaging::testClampedLongTextCopyRefetchesFullContent()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_longTextDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_longTextDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
-    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_renderer->rowCount() > 0, 5000);
 
     // The 5000-char name exceeds the 4096-byte page clamp, so the cell must be
     // flagged and its displayed value must be the clamped text.
@@ -813,10 +800,7 @@ void TestViewerPaging::testEmptyPageNavigationPreservesStateAndToken()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_emptyPageDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_emptyPageDbPath, "items");
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden(), 5000);
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 2000);
 
     // Go to page 2 (rows 501..1000)
@@ -857,9 +841,8 @@ void TestViewerPaging::testServerSortAndCancel()
     ViewOptionsPrivate priv;
     ViewOptions opts;
     setupViewer(viewer, m_smallDbPath, priv, opts);
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
-    viewer.loadSelectedTable(m_smallDbPath, "items");
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden() && !viewer.m_pageFetchInFlight &&
+                             viewer.m_renderer->rowCount() > 0, 5000);
     viewer.m_pagerState.pageSize = 10;
     auto header = viewer.m_renderer->horizontalHeader();
     header->sectionClicked(0);
@@ -889,9 +872,8 @@ void TestViewerPaging::testRealHeaderClicksKeepCommittedIndicator()
     ViewOptionsPrivate priv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, priv, opts);
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden() && !viewer.m_pageFetchInFlight &&
+                             viewer.m_renderer->rowCount() > 0, 5000);
     viewer.resize(960, 600);
     viewer.show();
     QLabel *sortingLabel = nullptr;
@@ -944,9 +926,8 @@ void TestViewerPaging::testLateSortCancelAndReplacement()
     ViewOptionsPrivate priv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, priv, opts);
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_picker);
-    viewer.loadSelectedTable(m_1mDbPath, "items");
-    QTRY_VERIFY(viewer.m_stack->currentWidget() == viewer.m_renderer);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_tableCombo->isHidden() && !viewer.m_pageFetchInFlight &&
+                             viewer.m_renderer->rowCount() > 0, 5000);
     auto header = viewer.m_renderer->horizontalHeader();
     header->sectionClicked(0);
     QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_sorting, 10000);
@@ -1295,9 +1276,6 @@ void TestViewerPaging::testRowIndexColumn()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-        viewer.loadSelectedTable(m_smallDbPath, "items");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
@@ -1345,9 +1323,6 @@ void TestViewerPaging::testRowIndexColumn()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-        viewer.loadSelectedTable(m_smallDbPath, "items");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
@@ -1365,9 +1340,6 @@ void TestViewerPaging::testRowIndexColumn()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-        viewer.loadSelectedTable(m_smallDbPath, "items");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
@@ -1396,9 +1368,6 @@ void TestViewerPaging::testRowIndexColumn()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_1mDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-        viewer.loadSelectedTable(m_1mDbPath, "items");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
 
@@ -1428,26 +1397,24 @@ void TestViewerPaging::testRowIndexColumn()
 
 void TestViewerPaging::testStatusBarRowIndexMetrics()
 {
-    // 1. Paged SQLite table with known total: displays [Row n/500, Global #k/total] col : value
+    // 1. Single-page table (no paging): displays [Row n/total] without Global #
     {
         DataTableViewer viewer;
+        QSignalSpy spyProps(&viewer, &ViewerBase::sigCommand);
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(viewer, m_smallDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-        viewer.loadSelectedTable(m_smallDbPath, "items");
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
 
-        // Select cell (0, 0) -> row 1 of 500, global #1 of 50
+        // Select cell (0, 0) -> row 1 of 50 (no pagination, Global # omitted)
         viewer.m_renderer->selectCell(0, 0);
-        QCOMPARE(viewer.m_status->text(), QString("[Row 1/500, Global #1/50] id : 1"));
+        QCOMPARE(viewer.m_status->text(), QString("[Row 1/50] id : 1"));
 
-        // Select cell (4, 1) -> row 5 of 500, global #5 of 50
+        // Select cell (4, 1) -> row 5 of 50
         viewer.m_renderer->selectCell(4, 1);
-        QCOMPARE(viewer.m_status->text(), QString("[Row 5/500, Global #5/50] name : Item_5"));
+        QCOMPARE(viewer.m_status->text(), QString("[Row 5/50] name : Item_5"));
 
         // Filter for "Item_2" via search bar (matches 11 rows: Item_2, Item_20..Item_29)
         viewer.m_search->setText("Item_2");
@@ -1456,7 +1423,19 @@ void TestViewerPaging::testStatusBarRowIndexMetrics()
         // Select first visible row (Item_2, source row index 1)
         viewer.m_renderer->selectCell(1, 1);
         QCOMPARE(viewer.m_status->text(),
-                 QString("[11 matches on this page]  [Row 2/500, Global #2/50] name : Item_2"));
+                 QString("[11 matches on this page]  [Row 2/50] name : Item_2"));
+
+        // Verify inspector property was emitted to host
+        bool foundPropCmd = false;
+        for(int i = 0; i < spyProps.count(); ++i) {
+            if(spyProps.at(i).at(0).toInt() == static_cast<int>(VCT_AppendProperty)) {
+                foundPropCmd = true;
+                auto props = spyProps.at(i).at(1).value<QVector<QPair<QString, QString>>>();
+                QVERIFY(!props.isEmpty());
+                break;
+            }
+        }
+        QVERIFY(foundPropCmd);
 
         // Clear filter and clear selection
         viewer.m_search->clear();
@@ -1466,7 +1445,28 @@ void TestViewerPaging::testStatusBarRowIndexMetrics()
         QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_status->text().contains("[Row"), 2000);
     }
 
-    // 2. CSV table: displays [Row n/pageSize, Global #k/total] or [Row n/pageSize]
+    // 2. Multi-page table (paging active): displays [Row n/pageSize, Global #k/total]
+    {
+        DataTableViewer viewer;
+        ViewOptionsPrivate optsPriv;
+        ViewOptions opts;
+        setupViewer(viewer, m_1mDbPath, optsPriv, opts);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 5000);
+
+        // Select cell (0, 0) -> row 1 of 500, global #1
+        viewer.m_renderer->selectCell(0, 0);
+        QVERIFY(viewer.m_status->text().startsWith("[Row 1/500, Global #1"));
+        QVERIFY(viewer.m_status->text().contains("id : 1"));
+
+        // Select cell (4, 1) -> row 5 of 500, global #5
+        viewer.m_renderer->selectCell(4, 1);
+        QVERIFY(viewer.m_status->text().startsWith("[Row 5/500, Global #5"));
+        QVERIFY(viewer.m_status->text().contains("name : Item_5"));
+    }
+
+    // 3. Single-page CSV table: displays [Row n/total] without Global #
     {
         DataTableViewer viewer;
         ViewOptionsPrivate optsPriv;
@@ -1475,10 +1475,9 @@ void TestViewerPaging::testStatusBarRowIndexMetrics()
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
         QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() > 0, 5000);
 
-        // Select cell (1, 0) -> row 2 of 500
+        // Select cell (1, 0) -> row 2 of 3
         viewer.m_renderer->selectCell(1, 0);
-        QVERIFY(viewer.m_status->text().startsWith("[Row 2/500"));
-        QVERIFY(viewer.m_status->text().contains("id : 2"));
+        QCOMPARE(viewer.m_status->text(), QString("[Row 2/3] id : 2"));
     }
 }
 
@@ -1488,9 +1487,6 @@ void TestViewerPaging::testPagingShortcutsAndTooltips()
     ViewOptionsPrivate optsPriv;
     ViewOptions opts;
     setupViewer(viewer, m_1mDbPath, optsPriv, opts);
-    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_picker, 5000);
-
-    viewer.loadSelectedTable(m_1mDbPath, "items");
     QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
     QTRY_VERIFY_WITH_TIMEOUT(viewer.m_renderer->rowCount() == 500, 5000);
 
@@ -1544,12 +1540,51 @@ void TestViewerPaging::testPagingShortcutsAndTooltips()
     QCOMPARE(viewer.m_pagerState.page, 1LL);
 }
 
+void TestViewerPaging::testCancelPendingClearsForeignPagerState() {
+    DataTableViewer viewer;
+    ViewOptionsPrivate optsPriv;
+    ViewOptions opts;
+
+    // A million-row table first: its total is the one that must not survive.
+    setupViewer(viewer, m_1mDbPath, optsPriv, opts);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+    QCOMPARE(*viewer.m_pagerState.total, 1000000LL);
+    QVERIFY(viewer.m_currentToken.valid);
+    QVERIFY(viewer.m_colCount > 0);
+
+    viewer.cancelPending();
+
+    QVERIFY(!viewer.m_pagerState.total.has_value());
+    QVERIFY(!viewer.m_currentToken.valid);
+    QCOMPARE(viewer.m_colCount, 0);
+    QCOMPARE(viewer.m_pagerState.page, 1LL);
+    QVERIFY(!viewer.m_pagerState.hasMore);
+
+    // Observable consequence: switching to a 50-row table has to end up with
+    // that table's own count. A surviving total would both display the wrong
+    // figure and suppress this load's COUNT request.
+    setupViewer(viewer, m_smallDbPath, optsPriv, opts);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_stack->currentWidget() == viewer.m_renderer, 5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!viewer.m_pageFetchInFlight && viewer.m_pagerState.page == 1, 5000);
+    QVERIFY(!viewer.m_pagerState.total.has_value() || *viewer.m_pagerState.total == 50LL);
+    QTRY_VERIFY_WITH_TIMEOUT(viewer.m_pagerState.total.has_value(), 5000);
+    QCOMPARE(*viewer.m_pagerState.total, 50LL);
+}
+
 void TestViewerPaging::testContentSizingAndPropertyBounds()
 {
-    // 1. Verify getContentSize() returns natural size 960x600
+    // 1. Verify getContentSize() returns natural size 960x600 scaled by DPR
     {
         DataTableViewer viewer;
         QCOMPARE(viewer.getContentSize(), QSize(960, 600));
+
+        viewer.updateDPR(1.5);
+        QCOMPARE(viewer.getContentSize(), QSize(qRound(960 * 1.5), qRound(600 * 1.5)));
+
+        viewer.updateDPR(2.0);
+        QCOMPARE(viewer.getContentSize(), QSize(960 * 2, 600 * 2));
     }
 
     // 2. Setting size_min_viewer and size_max_viewer in properties applies to viewer widget bounds
@@ -1642,9 +1677,7 @@ void TestViewerPaging::testViewerDestructionJoinsActiveWorkers()
         ViewOptionsPrivate optsPriv;
         ViewOptions opts;
         setupViewer(*viewer, m_1mDbPath, optsPriv, opts);
-        QTRY_VERIFY_WITH_TIMEOUT(viewer->m_stack->currentWidget() == viewer->m_picker, 5000);
-        viewer->loadSelectedTable(m_1mDbPath, "items");
-        QTRY_VERIFY_WITH_TIMEOUT(viewer->m_stack->currentWidget() == viewer->m_renderer, 3000);
+        QTRY_VERIFY_WITH_TIMEOUT(viewer->m_stack->currentWidget() == viewer->m_renderer, 5000);
         // Trigger a page navigation
         viewer->onNextPageClicked();
         // Destroy while page query is in-flight

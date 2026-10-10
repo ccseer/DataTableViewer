@@ -91,14 +91,18 @@ Keyboard shortcuts can be customized in the `[Shortcuts]` section:
 
 ```ini
 [Shortcuts]
-DataTableViewer.find=Ctrl+F
-DataTableViewer.copy=Ctrl+C
-DataTableViewer.viewText=Ctrl+Alt+T
-DataTableViewer.pageFirst=Ctrl+Home
-DataTableViewer.pagePrev=Ctrl+PageUp
-DataTableViewer.pageNext=Ctrl+PageDown
-DataTableViewer.pageLast=Ctrl+End
+find=Ctrl+F
+copy=Ctrl+C
+viewText=Ctrl+Alt+T
+pageFirst=Ctrl+Home
+pagePrev=Ctrl+PageUp
+pageNext=Ctrl+PageDown
+pageLast=Ctrl+End
 ```
+
+The file is used by this plugin only, so keys carry no plugin prefix. Keys written by
+older builds as `DataTableViewer.find` are still read, and a plain key wins if both
+forms are present.
 
 ### Action Reference
 

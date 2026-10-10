@@ -18,11 +18,9 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     layout->addStretch();
 
     m_btnFirst = new QPushButton(this);
-    m_btnFirst->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnFirst);
 
     m_btnPrev = new QPushButton(this);
-    m_btnPrev->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnPrev);
 
     m_labelPage = new QLabel(this);
@@ -30,11 +28,9 @@ PageBar::PageBar(QWidget *parent) : QWidget(parent)
     layout->addWidget(m_labelPage);
 
     m_btnNext = new QPushButton(this);
-    m_btnNext->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnNext);
 
     m_btnLast = new QPushButton(this);
-    m_btnLast->setCursor(Qt::PointingHandCursor);
     layout->addWidget(m_btnLast);
 
     layout->addStretch();
@@ -102,7 +98,7 @@ void PageBar::updateTheme(bool dark, qreal dpr)
                       .arg(surface, border)
                       .arg(qRound(4 * m_dpr))
                       .arg(text)
-                      .arg(qRound(12 * m_dpr)));
+                      .arg(qRound(14 * m_dpr)));
 
     updateIcons();
 }

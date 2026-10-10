@@ -21,6 +21,15 @@ bool isModifierKey(Qt::Key key)
     }
 }
 
+// The ini file is this plugin's own, so [Shortcuts] keys drop the namespace of
+// the action id: "DataTableViewer.find" is stored as "find". The namespaced
+// form written by older builds stays readable through the fallback below.
+QString iniKeyForId(const QString &id)
+{
+    const int dot = id.lastIndexOf('.');
+    return dot < 0 ? id : id.mid(dot + 1);
+}
+
 bool isValidKeySequence(const QKeySequence &seq)
 {
     if(seq.isEmpty()) {
@@ -77,10 +86,11 @@ void ActionRegistry::saveDefaultsIfMissing(QSettings &settings)
 {
     settings.beginGroup("Shortcuts");
     for(const QString &id : m_order) {
-        if(!settings.contains(id)) {
+        const QString key = iniKeyForId(id);
+        if(!settings.contains(key)) {
             auto it = m_defaultShortcuts.find(id);
             if(it != m_defaultShortcuts.end() && !it->second.isEmpty()) {
-                settings.setValue(id, it->second.toString(QKeySequence::PortableText));
+                settings.setValue(key, it->second.toString(QKeySequence::PortableText));
             }
         }
     }
@@ -147,18 +157,30 @@ void ActionRegistry::resolveAndApplyShortcut(const QString &id, QAction *act,
 {
     QKeySequence effective = defaultSeq;
 
-    auto confIt = m_configuredValues.find(id);
-    if(confIt != m_configuredValues.end() && !confIt->second.isEmpty()) {
-        QKeySequence parsed = QKeySequence::fromString(confIt->second, QKeySequence::PortableText);
+    // Keys are read as written, so both the plain form and the namespaced form
+    // of an older file land here and are picked up in resolveAndApplyShortcut.
+    QString configured;
+    auto shortIt = m_configuredValues.find(iniKeyForId(id));
+    if(shortIt != m_configuredValues.end()) {
+        configured = shortIt->second;
+    } else {
+        auto legacyIt = m_configuredValues.find(id);
+        if(legacyIt != m_configuredValues.end()) {
+            configured = legacyIt->second;
+        }
+    }
+
+    if(!configured.isEmpty()) {
+        QKeySequence parsed = QKeySequence::fromString(configured, QKeySequence::PortableText);
         if(!isValidKeySequence(parsed)) {
-            parsed = QKeySequence::fromString(confIt->second, QKeySequence::NativeText);
+            parsed = QKeySequence::fromString(configured, QKeySequence::NativeText);
         }
         if(isValidKeySequence(parsed)) {
             effective = parsed;
         } else {
-            const QString warnKey = id + ":" + confIt->second;
+            const QString warnKey = id + ":" + configured;
             if(m_warnedInvalid.insert(warnKey).second) {
-                qWarning() << "[ActionRegistry] Invalid shortcut" << confIt->second << "for action"
+                qWarning() << "[ActionRegistry] Invalid shortcut" << configured << "for action"
                            << id << "- falling back to default";
             }
         }

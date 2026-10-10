@@ -183,7 +183,7 @@ private slots:
         {
             QSettings settings(iniPath, QSettings::IniFormat);
             settings.beginGroup("Shortcuts");
-            settings.setValue("DataTableViewer.find", "Ctrl+H");
+            settings.setValue("find", "Ctrl+H");
             settings.endGroup();
             settings.sync();
         }
@@ -205,9 +205,9 @@ private slots:
         QSettings checkSettings(iniPath, QSettings::IniFormat);
         checkSettings.beginGroup("Shortcuts");
         // Custom shortcut must be preserved
-        QCOMPARE(checkSettings.value("DataTableViewer.find").toString(), QString("Ctrl+H"));
+        QCOMPARE(checkSettings.value("find").toString(), QString("Ctrl+H"));
         // Missing shortcut must be seeded with portable text
-        QCOMPARE(checkSettings.value("DataTableViewer.copy").toString(),
+        QCOMPARE(checkSettings.value("copy").toString(),
                  QKeySequence(QKeySequence::Copy).toString(QKeySequence::PortableText));
         checkSettings.endGroup();
     }
@@ -218,7 +218,7 @@ private slots:
         {
             QSettings settings(iniPath, QSettings::IniFormat);
             settings.setValue("page_rows", 250);
-            settings.beginGroup("TablePlugin/CSV/HeaderState");
+            settings.beginGroup("CSV/HeaderState");
             settings.setValue("geom", "mock_geometry");
             settings.endGroup();
             settings.sync();
@@ -236,9 +236,56 @@ private slots:
 
         // Pre-existing keys remain untouched
         QCOMPARE(settings.value("page_rows").toInt(), 250);
-        settings.beginGroup("TablePlugin/CSV/HeaderState");
+        settings.beginGroup("CSV/HeaderState");
         QCOMPARE(settings.value("geom").toString(), QString("mock_geometry"));
         settings.endGroup();
+    }
+
+    void testLegacyNamespacedShortcutKeyIsStillHonored()
+    {
+        // Configuration written before [Shortcuts] keys dropped the action-id
+        // namespace must keep working instead of silently resetting to defaults.
+        const QString iniPath = m_tempDir->filePath("legacy_shortcuts.ini");
+        {
+            QSettings settings(iniPath, QSettings::IniFormat);
+            settings.beginGroup("Shortcuts");
+            settings.setValue("DataTableViewer.find", "Ctrl+Shift+H");
+            settings.endGroup();
+            settings.sync();
+        }
+
+        QWidget widget;
+        dtv::ui::ActionRegistry registry(&widget);
+
+        QSettings settings(iniPath, QSettings::IniFormat);
+        registry.loadShortcuts(settings);
+
+        QAction *findAct =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
+        QCOMPARE(findAct->shortcut(), QKeySequence("Ctrl+Shift+H"));
+    }
+
+    void testPlainShortcutKeyWinsOverLegacy()
+    {
+        const QString iniPath = m_tempDir->filePath("mixed_shortcuts.ini");
+        {
+            QSettings settings(iniPath, QSettings::IniFormat);
+            settings.beginGroup("Shortcuts");
+            settings.setValue("find", "Ctrl+Alt+H");
+            settings.setValue("DataTableViewer.find", "Ctrl+Shift+H");
+            settings.endGroup();
+            settings.sync();
+        }
+
+        QWidget widget;
+        dtv::ui::ActionRegistry registry(&widget);
+
+        QSettings settings(iniPath, QSettings::IniFormat);
+        registry.loadShortcuts(settings);
+
+        QAction *findAct =
+            registry.registerAction("DataTableViewer.find", "Find", QKeySequence::Find);
+        QCOMPARE(findAct->shortcut(), QKeySequence("Ctrl+Alt+H"));
     }
 
     void testActionTextIndependence()

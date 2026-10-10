@@ -126,7 +126,7 @@ inline constexpr auto g_qss_page_bar = R"(
     }
     QPushButton:hover { background-color: rgba(128, 128, 128, 40); }
     QPushButton:pressed { background-color: rgba(128, 128, 128, 60); }
-    QLabel { color: %4; font-size: %5px; }
+    QLabel { color: %4; font-size: %5px; font-weight: 500; }
 )";
 
 inline QIcon createMultiStateIcon(const char *data, const QColor &normalColor,

@@ -44,6 +44,8 @@ private slots:
     void testCsvOpGenSupersedesPendingRequestLeavesIndexingAlive();
     void testCsvViewGenCancellationStopsIndexing();
     void testRefetchRowsBatchBudget();
+    void testRefetchRowsCompletesAfterRetiredView();
+    void testRefetchRowsCompletesAfterInterruption();
     void testSortFailureReportsReasonForNonSqliteSource();
 
 signals:
@@ -1169,6 +1171,90 @@ void TestSourceWorker::testRefetchRowsBatchBudget()
     QMetaObject::invokeMethod(worker, "shutdown", Qt::QueuedConnection);
     thread->quit();
     thread->wait();
+}
+
+void TestSourceWorker::testRefetchRowsCompletesAfterRetiredView()
+{
+    auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
+    auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
+
+    BackgroundThread thread;
+    SourceWorker worker(viewGen, opGen);
+    worker.moveToThread(&thread);
+
+    connect(this, &TestSourceWorker::reqOpen, &worker, &SourceWorker::open);
+    QSignalSpy spyRefetch(&worker, &SourceWorker::refetchRowsCompleted);
+    QSignalSpy spyOpen(&worker, &SourceWorker::openCompleted);
+
+    thread.start();
+
+    emit reqOpen(1, 1, m_dbPath, "items");
+    QVERIFY(spyOpen.wait(5000));
+
+    // Retire the view the open above belongs to without touching the worker:
+    // this is what a file switch does while a copy is still in flight.
+    viewGen->store(2);
+
+    // The renderer holds its cells and a copy counter for every request it
+    // sent. Returning without a completion would leave that entry armed
+    // forever, so both early exits have to report the failure themselves.
+    std::vector<std::pair<int, dtv::core::RefetchKey>> rowKeys;
+    dtv::core::RefetchKey key;
+    key.rowid = 1;
+    rowKeys.emplace_back(0, key);
+
+    QMetaObject::invokeMethod(&worker, "refetchRows", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 700), Q_ARG(RefetchRowKeysList, rowKeys));
+
+    QVERIFY(spyRefetch.wait(5000));
+    QCOMPARE(spyRefetch.count(), 1);
+    QCOMPARE(spyRefetch.at(0).at(0).toULongLong(), 1ULL);
+    QCOMPARE(spyRefetch.at(0).at(1).toULongLong(), 700ULL);
+    QVERIFY(spyRefetch.at(0).at(2).value<RefetchRowResultsList>().empty());
+
+    // No shutdown() call: it ends in deleteLater(), which must never reach a
+    // worker that is not heap allocated.
+    thread.quit();
+    thread.wait();
+}
+
+void TestSourceWorker::testRefetchRowsCompletesAfterInterruption()
+{
+    auto viewGen = std::make_shared<std::atomic<uint64_t>>(1);
+    auto opGen = std::make_shared<std::atomic<uint64_t>>(1);
+
+    BackgroundThread thread;
+    SourceWorker worker(viewGen, opGen);
+    worker.moveToThread(&thread);
+
+    connect(this, &TestSourceWorker::reqOpen, &worker, &SourceWorker::open);
+    QSignalSpy spyRefetch(&worker, &SourceWorker::refetchRowsCompleted);
+    QSignalSpy spyOpen(&worker, &SourceWorker::openCompleted);
+
+    thread.start();
+
+    emit reqOpen(1, 1, m_dbPath, "items");
+    QVERIFY(spyOpen.wait(5000));
+
+    thread.requestInterruption();
+
+    std::vector<std::pair<int, dtv::core::RefetchKey>> rowKeys;
+    dtv::core::RefetchKey key;
+    key.rowid = 1;
+    rowKeys.emplace_back(0, key);
+
+    QMetaObject::invokeMethod(&worker, "refetchRows", Qt::QueuedConnection, Q_ARG(uint64_t, 1),
+                              Q_ARG(uint64_t, 800), Q_ARG(RefetchRowKeysList, rowKeys));
+
+    QVERIFY(spyRefetch.wait(5000));
+    QCOMPARE(spyRefetch.count(), 1);
+    QCOMPARE(spyRefetch.at(0).at(1).toULongLong(), 800ULL);
+    QVERIFY(spyRefetch.at(0).at(2).value<RefetchRowResultsList>().empty());
+
+    // No shutdown() call: it ends in deleteLater(), which must never reach a
+    // worker that is not heap allocated.
+    thread.quit();
+    thread.wait();
 }
 
 void TestSourceWorker::testSortFailureReportsReasonForNonSqliteSource()

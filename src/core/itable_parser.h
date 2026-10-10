@@ -17,8 +17,10 @@ struct ParseInput {
 };
 
 struct TableParseResult {
-    std::shared_ptr<TableData> data;      // nullptr on error or table list
-    std::vector<std::string> table_names; // SQLite table list
+    std::shared_ptr<TableData> data;        // nullptr on error or table list
+    std::vector<std::string> table_names;   // SQLite table list
+    std::vector<std::string> table_notes;   // Optional table comments/notes
+    std::vector<std::string> table_schemas; // Columns and indexes metadata summary
     bool ok = false;
     std::string error;
     std::string warning;

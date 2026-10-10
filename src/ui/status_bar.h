@@ -39,13 +39,11 @@ signals:
     void cancelSortRequested();
 
 private:
-    void repaintInfoIcon();
     void updateDisplay();
     void rebuildPagedTexts();
     void resetLoadInfo();
 
     QLabel *m_valueLabel = nullptr;
-    QLabel *m_info = nullptr;
     QLabel *m_sorting = nullptr;
     QProgressBar *m_progress = nullptr;
 
@@ -58,9 +56,9 @@ private:
     bool m_indexing = false;
     QString m_indexingText;
     QString m_indexingError;
-    // Last warning already folded into m_summaryText/m_tooltipLines. Applying
-    // the same warning twice would append a second copy, so the repeat is
-    // skipped; clearing it happens with the text it belongs to.
+    // Last warning already folded into m_summaryText. Applying the same warning
+    // twice would append a second copy, so the repeat is skipped; clearing it
+    // happens with the text it belongs to.
     QString m_appliedWarning;
 
     bool m_pagedMode = false;
@@ -72,9 +70,6 @@ private:
     qint64 m_elapsedMs = 0;
     QString m_formatName;
     QString m_libraryCredit;
-
-    // Stored for theme repaint
-    QString m_tooltipLines;
 };
 
 } // namespace ui

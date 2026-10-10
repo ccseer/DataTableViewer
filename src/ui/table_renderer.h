@@ -50,6 +50,9 @@ public:
     void updateTheme(bool dark, qreal dpr);
 
     void setStateKey(const QString &key); // includes parser-format and table name
+    // Column layouts are stored under the state key itself. Configurations
+    // written before that group lost its dedicated prefix are still readable,
+    // so a saved column layout survives the upgrade.
     void saveHeaderState(QSettings &settings) const;
     void restoreHeaderState(QSettings &settings);
 
@@ -87,11 +90,13 @@ private:
     void setupView();
     void performCopy(bool isMarkdown);
     void updateVerticalHeaderWidth();
+    void restoreHeaderStateFrom(QSettings &settings, const QString &group);
 
     QTableView *m_view = nullptr;
     TableModel *m_model = nullptr;
     TableFilterProxy *m_proxy = nullptr;
     QString m_stateKey;
+    bool m_restoredHeaderState = false;
 
     int m_lastSortCol = -1;
     Qt::SortOrder m_lastSortOrder = Qt::AscendingOrder;

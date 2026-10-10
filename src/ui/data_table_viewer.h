@@ -17,6 +17,7 @@
 
 class QStackedLayout;
 class QPushButton;
+class QComboBox;
 class QSettings;
 
 namespace dtv {
@@ -30,7 +31,6 @@ class SearchBar;
 class StatusBar;
 class PageBar;
 class TableRenderer;
-class TablePicker;
 class ActionRegistry;
 } // namespace ui
 } // namespace dtv
@@ -49,7 +49,10 @@ public:
     }
     QSize getContentSize() const override
     {
-        return {960, 600};
+        const qreal r = (options() && options()->dpr() > 0.0)
+                            ? options()->dpr()
+                            : (m_dpr > 0.0 ? m_dpr : 1.0);
+        return QSize(qRound(960 * r), qRound(600 * r));
     }
     void loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar) override;
     void updateDPR(qreal r) override;
@@ -103,17 +106,25 @@ private:
     // Reopens m_sourcePath/m_sourceTable on the current worker, choosing the
     // SQLite path or the CSV descriptor from m_isCsv.
     void openCurrentSource(uint64_t viewGen, uint64_t opGen);
+    void emitHostProperties(const QString &format, int64_t rowCount, int colCount,
+                            qint64 fileBytes, qint64 elapsedMs,
+                            const QString &libraryCredit,
+                            bool truncated = false, size_t totalRows = 0);
+    void onTableComboChanged(int index);
+    void updateTableComboTooltip();
+    void updateTableComboGeometry();
 
     dtv::ui::SearchBar *m_search = nullptr;
+    QComboBox *m_tableCombo = nullptr;
+    QStringList m_sqliteTableNames;
+    QStringList m_sqliteTableNotes;
+    QStringList m_sqliteTableSchemas;
     dtv::ui::StatusBar *m_status = nullptr;
     dtv::ui::PageBar *m_pageBar = nullptr;
     dtv::ui::TableRenderer *m_renderer = nullptr;
-    dtv::ui::TablePicker *m_picker = nullptr;
     QStackedLayout *m_stack = nullptr;
-    QPushButton *m_backBtn = nullptr;
     // QPointer because this button is handed to the host-provided control-bar
-    // layout, which may take ownership of it; m_backBtn above is inserted into
-    // the plugin's own search layout and is owned by this widget's tree.
+    // layout, which may take ownership of it.
     QPointer<QPushButton> m_btnTextView;
 
     QString m_currentPath;

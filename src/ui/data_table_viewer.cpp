@@ -4,7 +4,6 @@
 #include "status_bar.h"
 #include "page_bar.h"
 #include "table_renderer.h"
-#include "table_picker.h"
 #include "style_assets.h"
 #include "core/parser_registry.h"
 #include "core/pager_state.h"
@@ -18,6 +17,7 @@
 #include <QHBoxLayout>
 #include <QStackedLayout>
 #include <QPushButton>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QFileInfo>
 #include <QPointer>
@@ -33,6 +33,9 @@
 
 namespace {
 static bool s_iniWriteWarned = false;
+
+// Maximum number of visible characters used to calculate the table selector combobox's maximum width.
+constexpr int kMaxTableComboChars = 36;
 
 bool isSqliteExtension(const QString &suffix)
 {
@@ -72,16 +75,21 @@ void DataTableViewer::init()
 
     qRegisterMetaType<std::shared_ptr<const dtv::core::TableParseResult>>(
         "std::shared_ptr<const dtv::core::TableParseResult>");
+    qRegisterMetaType<QVector<QPair<QString, QString>>>("QVector<QPair<QString, QString>>");
     dtv::workers::registerWorkerMetatypes();
     dtv::core::ParserRegistry::instance().registerBuiltinParsers();
 
     // 1. Create UI components
     m_search = new dtv::ui::SearchBar(this);
+    m_tableCombo = new QComboBox(this);
+    m_tableCombo->hide();
+    connect(m_tableCombo, QOverload<int>::of(&QComboBox::activated), this,
+            &DataTableViewer::onTableComboChanged);
+    updateTableComboGeometry();
     m_status = new dtv::ui::StatusBar(this);
     m_pageBar = new dtv::ui::PageBar(this);
     m_pageBar->hide();
     m_renderer = new dtv::ui::TableRenderer(this);
-    m_picker = new dtv::ui::TablePicker(this);
 
     // 2. Setup library paths
     const QString path = seer::getDLLPath();
@@ -93,32 +101,9 @@ void DataTableViewer::init()
 
     m_stack = new QStackedLayout;
     m_stack->addWidget(m_renderer);
-    m_stack->addWidget(m_picker);
 
-    m_backBtn = new QPushButton(this);
-    m_backBtn->hide();
-    m_backBtn->setFixedSize(30, 30);
-    m_backBtn->setCursor(Qt::PointingHandCursor);
-    m_backBtn->setToolTip("Back to table list");
-
-    connect(m_backBtn, &QPushButton::clicked, this, [this] {
-        cancelPending();
-        m_renderer->clear();
-        m_renderer->setStateKey({});
-        m_renderer->setPagedMode(false);
-        m_search->setPagedMode(false);
-        m_status->setPagedMode(false);
-        m_pageBar->hide();
-        m_stack->setCurrentWidget(m_picker);
-        m_backBtn->hide();
-        m_search->hide();
-        m_status->clear();
-    });
-
-    connect(m_picker, &dtv::ui::TablePicker::tableSelected, this, [this](const QString &name) {
-        loadSelectedTable(m_currentPath, name);
-    });
-
+    // The combo box owns table switching, and every SQLite load serves one table
+    // straight away, so there is no list view left to go back to.
     connect(m_search, &dtv::ui::SearchBar::filterChanged, this, [this](const QString &text) {
         m_renderer->setFilter(text, -1);
     });
@@ -135,11 +120,11 @@ void DataTableViewer::init()
                 }
 
                 int pageRow = modelRow + 1;
-                int pageSize =
-                    m_pagerState.pageSize > 0 ? m_pagerState.pageSize : m_renderer->rowCount();
+                const bool hasPaging = m_isPaged && m_pageBar && m_pageBar->shouldBeVisible();
 
                 QString prefix;
-                if(m_isPaged && m_pagerState.pageSize > 0) {
+                if(hasPaging && m_pagerState.pageSize > 0) {
+                    int pageSize = m_pagerState.pageSize;
                     int64_t globalRow =
                         dtv::core::firstRowOnPage(m_pagerState.page, m_pagerState.pageSize) +
                         modelRow;
@@ -156,7 +141,8 @@ void DataTableViewer::init()
                                      .arg(globalRow);
                     }
                 } else {
-                    prefix = QString("[Row %1/%2] ").arg(pageRow).arg(pageSize);
+                    int totalInView = m_renderer->rowCount();
+                    prefix = QString("[Row %1/%2] ").arg(pageRow).arg(totalInView);
                 }
 
                 m_status->setValueText(QString("%1%2 : %3").arg(prefix, header, value));
@@ -303,8 +289,8 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
     }
 
     if(auto *slay = qobject_cast<QHBoxLayout *>(m_search->layout())) {
-        if(slay->indexOf(m_backBtn) == -1) {
-            slay->insertWidget(0, m_backBtn);
+        if(slay->indexOf(m_tableCombo) == -1) {
+            slay->insertWidget(0, m_tableCombo);
         }
     }
 
@@ -316,7 +302,6 @@ void DataTableViewer::loadImpl(QBoxLayout *lay_content, QHBoxLayout *lay_ctrlbar
         m_btnTextView->setObjectName("textViewBtn");
         m_btnTextView->setFlat(true);
         m_btnTextView->setFocusPolicy(Qt::NoFocus);
-        m_btnTextView->setCursor(Qt::PointingHandCursor);
         connect(m_btnTextView, &QPushButton::clicked, this, &DataTableViewer::onTextViewBtnClicked);
     }
     const QString shortcutHint =
@@ -372,12 +357,13 @@ void DataTableViewer::updateDPR(qreal r)
     m_dpr = r;
     if(m_search)
         m_search->updateDPR(r);
+    if(m_tableCombo) {
+        updateTableComboGeometry();
+    }
     if(m_status)
         m_status->updateTheme(m_isDarkMode, r);
     if(m_pageBar)
         m_pageBar->updateTheme(m_isDarkMode, r);
-    if(m_picker)
-        m_picker->updateTheme(m_isDarkMode, r);
     if(m_renderer)
         m_renderer->updateTheme(m_isDarkMode, r);
 
@@ -397,8 +383,6 @@ void DataTableViewer::updateTheme(int theme)
         m_status->updateTheme(m_isDarkMode, m_dpr);
     if(m_pageBar)
         m_pageBar->updateTheme(m_isDarkMode, m_dpr);
-    if(m_picker)
-        m_picker->updateTheme(m_isDarkMode, m_dpr);
     if(m_renderer)
         m_renderer->updateTheme(m_isDarkMode, m_dpr);
 
@@ -408,7 +392,7 @@ void DataTableViewer::updateTheme(int theme)
 void DataTableViewer::reapplyStyles()
 {
     using namespace dtv::ui;
-    if(!m_search || !m_status || !m_backBtn)
+    if(!m_search || !m_status)
         return;
 
     const char *surface = m_isDarkMode ? Colors::DarkSurface : Colors::LightSurface;
@@ -426,15 +410,6 @@ void DataTableViewer::reapplyStyles()
     m_status->setStyleSheet(QString(g_qss_bottom_bar).arg(surface, border));
 
     QColor iconColor(m_isDarkMode ? Colors::DarkText : Colors::LightText);
-    int iconSize = qRound(18 * m_dpr);
-    m_backBtn->setIcon(createIcon(g_svg_arrow_back, iconColor, iconSize));
-    m_backBtn->setIconSize(QSize(iconSize, iconSize));
-    m_backBtn->setFixedSize(qRound(30 * m_dpr), qRound(30 * m_dpr));
-    m_backBtn->setStyleSheet("QPushButton { border: none; background: transparent; "
-                             "border-radius: 5px; }"
-                             "QPushButton:hover { background-color: rgba(128, 128, 128, 36); }"
-                             "QPushButton:pressed { background-color: rgba(128, 128, 128, 58); }");
-
     if(m_btnTextView) {
         constexpr int kCtrlbarBtnSz = 30;
         constexpr int kCtrlbarBtnIconSz = 24;
@@ -449,6 +424,9 @@ void DataTableViewer::reapplyStyles()
                 "QPushButton#textViewBtn:hover { background-color: rgba(128, 128, 128, 36); }"
                 "QPushButton#textViewBtn:pressed { background-color: rgba(128, 128, 128, 58); }")
                 .arg(qRound(4 * m_dpr)));
+    }
+    if(m_tableCombo) {
+        updateTableComboGeometry();
     }
 }
 
@@ -556,8 +534,6 @@ void DataTableViewer::cancelPending()
     m_isPaged = false;
     m_isCsv = false;
     m_firstPagePending = false;
-    if(m_backBtn)
-        m_backBtn->hide();
     m_sorting = false;
     m_recoveringSort = false;
     m_canSort = false;
@@ -676,6 +652,9 @@ void DataTableViewer::doLoadFile(const QString &path, const QString &tableName)
     // open, and they now exist for the parser unit tests and for the non-CSV
     // extensions still registered in ParserRegistry.
     if(isCsvExtension(info.suffix())) {
+        if(m_tableCombo) {
+            m_tableCombo->hide();
+        }
         loadSelectedTable(path, "");
         return;
     }
@@ -727,12 +706,26 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
     m_status->showLoading();
     m_search->setEnabled(false);
     m_pageBar->hide();
-    if(m_backBtn)
-        m_backBtn->hide();
 
     QFileInfo info(path);
     m_fileBytes = info.size();
     m_isCsv = isCsvExtension(info.suffix());
+
+    if(m_isCsv && m_tableCombo) {
+        m_tableCombo->hide();
+    } else if(!m_isCsv && m_tableCombo) {
+        if(!tableName.isEmpty() && !m_sqliteTableNames.isEmpty()) {
+            int idx = m_sqliteTableNames.indexOf(tableName);
+            if(idx != -1 && m_tableCombo->currentIndex() != idx) {
+                m_tableCombo->blockSignals(true);
+                m_tableCombo->setCurrentIndex(idx);
+                m_tableCombo->blockSignals(false);
+                updateTableComboTooltip();
+            }
+        }
+        m_tableCombo->show();
+        m_tableCombo->setEnabled(true);
+    }
 
     // Resolved once per load: every page of the same file reports the same
     // format, credit and header-state key.
@@ -782,6 +775,11 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                     m_pagerState.total = totalRows;
                     m_pagerState.hasMore = (totalRows > m_pagerState.page * m_pagerState.pageSize);
                     m_status->updatePagedTotal(totalRows);
+                    emitHostProperties(m_sourcePath.endsWith(".tsv", Qt::CaseInsensitive)
+                                           ? QString("TSV")
+                                           : QString("CSV"),
+                                       totalRows, m_colCount, m_fileBytes, m_openElapsedMs,
+                                       QString("(built-in RFC 4180 parser)"), false, totalRows);
                     if(!m_firstPagePending) {
                         // setPagerState applies PageBar::shouldBeVisible(), the
                         // single owner of the pager hide/show rule.
@@ -934,8 +932,6 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                 m_stack->setCurrentWidget(m_renderer);
                 m_search->show();
                 m_search->setEnabled(true);
-                if(m_backBtn)
-                    m_backBtn->setVisible(!m_isCsv);
                 m_renderer->setPagedMode(true);
                 m_search->setPagedMode(true);
                 m_status->setPagedMode(true);
@@ -946,9 +942,15 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
             m_status->setPagedLoadInfo(firstRow, lastRow, m_pagerState.total, m_colCount,
                                        m_fileBytes, m_openElapsedMs, formatName, libraryCredit);
 
+            int64_t displayTotal = m_pagerState.total.value_or(rowCount);
+            bool isTruncated = !m_pagerState.total.has_value() || m_pagerState.hasMore;
+            emitHostProperties(formatName, displayTotal, m_colCount, m_fileBytes, m_openElapsedMs,
+                               libraryCredit, isTruncated, m_pagerState.total.value_or(0));
+
             // Publishing the state is enough: setPagerState itself applies
             // PageBar::shouldBeVisible(), which hides a single-page file.
             m_pageBar->setPagerState(m_pagerState);
+            updateTableComboTooltip();
 
             emit sigCommand(VCT_StateChange, VCV_Loaded);
 
@@ -1015,6 +1017,9 @@ void DataTableViewer::loadSelectedTable(const QString &path, const QString &tabl
                         m_pagerState.total = total;
                         m_pageBar->setPagerState(m_pagerState);
                         m_status->updatePagedTotal(total);
+                        updateTableComboTooltip();
+                        emitHostProperties(QString("SQLite"), total, m_colCount, m_fileBytes,
+                                           m_openElapsedMs, QString("sqlite3"), false, total);
                     } else if(!ok) {
                         m_countFailed = true;
                         m_status->setWarning(tr("Row count failed: %1").arg(error));
@@ -1218,18 +1223,43 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
     }
 
     if(!result->table_names.empty()) {
-        qprintt << "SQL table picker ready, count:" << result->table_names.size();
-        QStringList tables;
-        for(const auto &name : result->table_names) {
-            tables << QString::fromStdString(name);
+        qprintt << "SQL tables ready, count:" << result->table_names.size();
+        m_sqliteTableNames.clear();
+        m_sqliteTableNotes.clear();
+        m_sqliteTableSchemas.clear();
+        m_tableCombo->blockSignals(true);
+        m_tableCombo->clear();
+        for(size_t i = 0; i < result->table_names.size(); ++i) {
+            QString name = QString::fromStdString(result->table_names[i]);
+            QString note = i < result->table_notes.size()
+                               ? QString::fromStdString(result->table_notes[i])
+                               : QString();
+            QString schema = i < result->table_schemas.size()
+                                 ? QString::fromStdString(result->table_schemas[i])
+                                 : QString();
+            m_sqliteTableNames << name;
+            m_sqliteTableNotes << note;
+            m_sqliteTableSchemas << schema;
+            m_tableCombo->addItem(name);
+            QString itemTooltip = QString("Table: %1").arg(name);
+            if(!note.isEmpty()) {
+                itemTooltip += QString("\nNote: %1").arg(note);
+            }
+            if(!schema.isEmpty()) {
+                itemTooltip += "\n" + schema;
+            }
+            m_tableCombo->setItemData(static_cast<int>(i), itemTooltip, Qt::ToolTipRole);
         }
-        m_picker->setTables(tables);
-        m_stack->setCurrentWidget(m_picker);
-        m_backBtn->hide();
-        m_search->hide();
-        m_pageBar->hide();
-        m_status->restoreInfo();
-        emit sigCommand(VCT_StateChange, VCV_Loaded);
+        m_tableCombo->setCurrentIndex(0);
+        m_tableCombo->blockSignals(false);
+        updateTableComboGeometry();
+        updateTableComboTooltip();
+        m_tableCombo->show();
+        m_tableCombo->setEnabled(true);
+
+        m_stack->setCurrentWidget(m_renderer);
+        m_search->show();
+        loadSelectedTable(m_sourcePath, m_sqliteTableNames.first());
         return;
     }
 
@@ -1250,16 +1280,15 @@ void DataTableViewer::onParseCompleted(std::shared_ptr<const dtv::core::TablePar
                               QString::fromStdString(result->library_credit),
                               result->data->truncated, result->data->total_rows);
 
-        if(!tableName.isEmpty()) {
-            m_backBtn->show();
-        } else {
-            m_backBtn->hide();
-        }
-
         if(!result->warning.empty()) {
             qprintt << "Warning:" << QString::fromStdString(result->warning);
             m_status->setWarning(QString::fromStdString(result->warning));
         }
+
+        emitHostProperties(format, static_cast<int64_t>(result->data->rows.size()),
+                           static_cast<int>(result->data->columns.size()), result->file_bytes,
+                           result->elapsed_ms, QString::fromStdString(result->library_credit),
+                           result->data->truncated, result->data->total_rows);
 
         emit sigCommand(VCT_StateChange, VCV_Loaded);
     }
@@ -1270,6 +1299,49 @@ QString DataTableViewer::makeKey(const QString &format, const QString &table) co
     if(table.isEmpty())
         return format;
     return format + "/" + table;
+}
+
+void DataTableViewer::emitHostProperties(const QString &format, int64_t rowCount, int colCount,
+                                         qint64 fileBytes, qint64 elapsedMs,
+                                         const QString &libraryCredit,
+                                         bool truncated, size_t totalRows)
+{
+    QVector<QPair<QString, QString>> props;
+    props.append({tr("Format"), format});
+
+    QString rowsStr;
+    if(truncated) {
+        if(totalRows > 0) {
+            rowsStr = QString("%L1 (Total: %L2)").arg(rowCount).arg(totalRows);
+        } else {
+            rowsStr = QString("%L1+").arg(rowCount);
+        }
+    } else {
+        rowsStr = QString("%L1").arg(rowCount);
+    }
+    props.append({tr("Rows"), rowsStr});
+    props.append({tr("Columns"), QString::number(colCount)});
+
+    if(fileBytes > 0) {
+        auto fileSizeStr = [](qint64 bytes) {
+            if(bytes < 1024)
+                return QString::number(bytes) + " B";
+            if(bytes < 1024 * 1024)
+                return QString::number(bytes / 1024.0, 'f', 1) + " KB";
+            return QString::number(bytes / (1024.0 * 1024.0), 'f', 2) + " MB";
+        };
+        props.append({tr("File size"), fileSizeStr(fileBytes)});
+    }
+
+    if(elapsedMs >= 0) {
+        props.append({tr("Load time"), QString("%1 ms").arg(elapsedMs)});
+    }
+
+    if(!libraryCredit.isEmpty()) {
+        props.append({tr("Library"), libraryCredit});
+    }
+
+    emit sigCommand(VCT_AppendProperty, QVariant::fromValue(props));
 }
 
 void DataTableViewer::onCopyTriggered()
@@ -1294,4 +1366,67 @@ void DataTableViewer::onTextViewBtnClicked()
     if(m_sourcePath.isEmpty() && m_currentPath.isEmpty())
         return;
     emit sigCommand(VCT_LoadViewerWithNewType, QString("Text"));
+}
+
+void DataTableViewer::onTableComboChanged(int index)
+{
+    if(index >= 0 && index < m_sqliteTableNames.size()) {
+        updateTableComboTooltip();
+        loadSelectedTable(m_sourcePath, m_sqliteTableNames[index]);
+    }
+}
+
+void DataTableViewer::updateTableComboTooltip()
+{
+    if(!m_tableCombo)
+        return;
+    int idx = m_tableCombo->currentIndex();
+    if(idx >= 0 && idx < m_sqliteTableNames.size()) {
+        QString name = m_sqliteTableNames[idx];
+        QString note = idx < m_sqliteTableNotes.size() ? m_sqliteTableNotes[idx] : QString();
+        QString schema = idx < m_sqliteTableSchemas.size() ? m_sqliteTableSchemas[idx] : QString();
+
+        QString tip = QString("Table: %1").arg(name);
+        if(!note.isEmpty()) {
+            tip += QString("\nNote: %1").arg(note);
+        }
+        if(m_isPaged && m_sourceTable == name && m_pagerState.total.has_value()) {
+            tip += QString("\nRows: %L1").arg(*m_pagerState.total);
+        }
+        if(!schema.isEmpty()) {
+            tip += "\n" + schema;
+        }
+        m_tableCombo->setToolTip(tip);
+    }
+}
+
+void DataTableViewer::updateTableComboGeometry()
+{
+    if(!m_tableCombo)
+        return;
+
+    QFont font = m_tableCombo->font();
+    font.setPixelSize(qRound(13 * m_dpr));
+    m_tableCombo->setFont(font);
+    m_tableCombo->setFixedHeight(qRound(28 * m_dpr));
+
+    const QFontMetrics fm(font);
+    // 36 characters width plus margins/arrow defines maximum width upper bound
+    const int char36Width = fm.horizontalAdvance(QString(kMaxTableComboChars, '0'));
+    const int extraMargin = qRound(36 * m_dpr);
+    const int maxAllowedWidth = char36Width + extraMargin;
+
+    // Measure maximum text width among all items
+    int maxTextWidth = 0;
+    for(int i = 0; i < m_tableCombo->count(); ++i) {
+        maxTextWidth = std::max(maxTextWidth, fm.horizontalAdvance(m_tableCombo->itemText(i)));
+    }
+    const int neededWidth = maxTextWidth + extraMargin;
+
+    // If all items are narrower than max allowed width, use the needed width;
+    // otherwise clamp to maxAllowedWidth.
+    int finalWidth = std::min(neededWidth, maxAllowedWidth);
+    finalWidth = std::max(qRound(80 * m_dpr), finalWidth);
+
+    m_tableCombo->setFixedWidth(finalWidth);
 }
